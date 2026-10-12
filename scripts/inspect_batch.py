@@ -97,7 +97,7 @@ async def _inspect_shadow(record, aligner, verifier):
         stage = "shadow_verification"
         verification_start = time.perf_counter()
         try:
-            report["findings"] = verifier.verify(claims, profile, report["alignments"], skills_authoritative=True)
+            report["findings"] = verifier.verify(claims, profile, report["alignments"])
             report["comparisons"] = _compare_shadow_findings(baseline, report["findings"])
         finally:
             report["verification_seconds"] = time.perf_counter() - verification_start

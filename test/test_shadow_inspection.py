@@ -51,6 +51,23 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}},
                                    'response_format': {'type': 'json_object'}}])
 
+    async def test_ordinary_shadow_empty_skills_remain_unknown(self):
+        production = record()
+        production['result']['profiles'][0]['skills'] = []
+        production['comparison_output_before_validation'] = DeterministicClaimVerifier().verify(
+            production['result']['claims'], production['result']['profiles'][0], ALIGNMENTS)
+        original = deepcopy(production)
+        aligner = Mock()
+        aligner.align = AsyncMock(return_value=deepcopy(ALIGNMENTS))
+
+        report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier())
+
+        skills = [finding for finding in report['findings'] if finding['claim_id'].startswith('skills.')]
+        self.assertTrue(skills)
+        self.assertTrue(all(finding['status'] == 'UNKNOWN' for finding in skills))
+        self.assertEqual(report['errors'], [])
+        self.assertEqual(production, original)
+
     async def test_alignment_and_verification_failures_preserve_all_production_data(self):
         for stage in ('shadow_alignment', 'shadow_verification'):
             with self.subTest(stage=stage):
