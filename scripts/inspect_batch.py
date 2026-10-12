@@ -6,18 +6,130 @@ import json
 import os
 import tempfile
 import time
+from copy import deepcopy
 from collections import Counter
 from contextvars import ContextVar
 from pathlib import Path
 
 from hw2 import (
-    PER_CV_TIMEOUT_SECONDS, build_agent, correctness_text, cv_files, cv_text,
+    MODEL_NAME, PER_CV_TIMEOUT_SECONDS, build_agent, correctness_text, cv_files, cv_text,
     load_env_file, load_mcp_tools, parse_score, read_ground_truth,
 )
 
 DEFAULT_OUTPUT_DIR = Path(".venv/diagnostics")
 MAX_CONCURRENT_CVS = 3
 _COMPARISON_CAPTURE = ContextVar("batch_comparison_capture", default=None)
+_SHADOW_CAPTURE = ContextVar("batch_shadow_capture", default=None)
+
+
+def _build_shadow_components():
+    from langchain_deepseek import ChatDeepSeek
+    from langchain_core.runnables import RunnableLambda
+    from cv_verifier.record_aligner import RecordAligner
+    from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
+
+    model = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(
+        extra_body={"thinking": {"type": "disabled"}}, response_format={"type": "json_object"},
+    )
+    async def measured(prompt):
+        capture = _SHADOW_CAPTURE.get()
+        if capture is not None:
+            capture["llm_calls"] += 1
+        return await model.ainvoke(prompt)
+    return RecordAligner(RunnableLambda(measured)), DeterministicClaimVerifier()
+
+
+def _compare_shadow_findings(baseline, findings):
+    originals = {finding["claim_id"]: finding for finding in baseline}
+    comparisons = []
+    for finding in findings:
+        reference = finding["claim_id"]
+        original = originals[reference]
+        agreement = original["status"] == finding["status"]
+        cause = None
+        if not agreement:
+            if finding["status"] == "UNKNOWN":
+                reason = finding["reason"]
+                cause = "alignment" if reason.startswith("Record alignment") else (
+                    "missing_evidence" if reason.startswith("Missing") else "semantic_equivalence")
+            else:
+                cause = "objective_contradiction" if "MISMATCH" in (finding["status"], original["status"]) else "objective_match"
+        comparisons.append({"claim_id": reference, "category": reference.split(".")[0],
+                            "llm_status": original["status"], "deterministic_status": finding["status"],
+                            "agreement": agreement, "disagreement_type": cause, "reason": finding["reason"]})
+    return comparisons
+
+
+async def _inspect_shadow(record, aligner, verifier):
+    from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
+    from cv_verifier.identity_decision_validator import IdentityDecisionValidator
+
+    baseline = record.get("comparison_output_before_validation")
+    report = {"attempted": False, "skipped": None, "llm_findings": deepcopy(baseline),
+              "alignments": None, "findings": [], "comparisons": [], "errors": [], "llm_calls": 0,
+              "alignment_seconds": 0.0, "verification_seconds": 0.0, "elapsed_seconds": 0.0}
+    start = time.perf_counter()
+    token = _SHADOW_CAPTURE.set(report)
+    stage = "shadow_input"
+    try:
+        result = record["result"]
+        if result.get("identity") != "resolved":
+            report["skipped"] = "identity_unresolved"
+            return report
+        if baseline is None:
+            report["skipped"] = "baseline_unavailable"
+            return report
+        IdentityDecisionValidator().validate({"candidate_id": result["selected_candidate_id"],
+            "reason": result["identity_reason"]}, result["profiles"])
+        selected = [profile for profile in result["profiles"] if profile["id"] == result["selected_candidate_id"]]
+        if len(selected) != 1:
+            raise ValueError("Shadow requires exactly one selected profile")
+        claims, profile = deepcopy(result["claims"]), deepcopy(selected[0])
+        ClaimComparisonValidator().validate(baseline, claims, profile)
+        report["attempted"] = True
+        stage = "shadow_alignment"
+        alignment_start = time.perf_counter()
+        try:
+            report["alignments"] = await asyncio.wait_for(aligner.align(deepcopy(claims), deepcopy(profile)),
+                                                         timeout=PER_CV_TIMEOUT_SECONDS)
+        finally:
+            report["alignment_seconds"] = time.perf_counter() - alignment_start
+        stage = "shadow_verification"
+        verification_start = time.perf_counter()
+        try:
+            report["findings"] = verifier.verify(claims, profile, report["alignments"])
+            report["comparisons"] = _compare_shadow_findings(baseline, report["findings"])
+        finally:
+            report["verification_seconds"] = time.perf_counter() - verification_start
+    except Exception as error:
+        report["errors"].append({"stage": stage, "message": str(error) or type(error).__name__})
+    finally:
+        report["elapsed_seconds"] = time.perf_counter() - start
+        _SHADOW_CAPTURE.reset(token)
+    return report
+
+
+async def _run_shadow(payload, output, semaphore):
+    start = time.perf_counter()
+    payload["shadow_enabled"] = True
+    try:
+        aligner, verifier = _build_shadow_components()
+    except Exception as error:
+        payload["shadow_setup_errors"] = [{"stage": "shadow_setup", "message": str(error)}]
+        _save_results(output, payload)
+        return
+    async def inspect_one(record):
+        async with semaphore:
+            record["shadow"] = await _inspect_shadow(record, aligner, verifier)
+            _save_results(output, payload)
+            shadow = record["shadow"]
+            disagreements = sum(not row["agreement"] for row in shadow["comparisons"])
+            print(f"{record['filename']} shadow: disagreements={disagreements}; "
+                  f"calls={shadow['llm_calls']}; {shadow['elapsed_seconds']:.2f}s; "
+                  f"errors={len(shadow['errors'])}; skipped={shadow['skipped']}", flush=True)
+    await asyncio.gather(*(inspect_one(record) for record in payload["records"]))
+    payload["shadow_elapsed_seconds"] = time.perf_counter() - start
+    _save_results(output, payload)
 
 
 def _capture_comparisons(agent):
@@ -104,7 +216,7 @@ def _print_record(record):
           f"reflection corrections={corrections}/errors={reflection_errors}", flush=True)
 
 
-async def inspect_batch(folder: Path, output: Path | None = None):
+async def inspect_batch(folder: Path, output: Path | None = None, *, shadow: bool = False):
     if output is None:
         output = DEFAULT_OUTPUT_DIR / f"public_batch_{time.time_ns()}.json"
     paths = cv_files(folder)
@@ -163,6 +275,9 @@ async def inspect_batch(folder: Path, output: Path | None = None):
             _print_record(record)
 
     await asyncio.gather(*(inspect_one(path) for path in paths))
+    # Complete/persist the ordinary production batch before issuing any shadow inference.
+    if shadow:
+        await _run_shadow(payload, output, semaphore)
     correct = sum(record["correctness"] == "correct" for record in payload["records"])
     print(f"Completed {len(records)} CVs; {correct} correct; details: {output}")
     return payload
@@ -172,8 +287,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cv-folder", required=True, type=Path)
     parser.add_argument("--output", type=Path, help="Detailed JSON path; default creates a unique development file")
+    parser.add_argument("--shadow", action="store_true", help="Compare deterministic findings after production completes")
     args = parser.parse_args()
-    asyncio.run(inspect_batch(args.cv_folder, args.output))
+    asyncio.run(inspect_batch(args.cv_folder, args.output, shadow=args.shadow))
 
 
 if __name__ == "__main__":
