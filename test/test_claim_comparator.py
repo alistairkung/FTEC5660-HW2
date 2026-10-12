@@ -105,6 +105,57 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(finding['status'], 'UNKNOWN')
         self.assertEqual(finding['evidence'], [])
 
+    async def test_fabricated_employer_absent_from_complete_history_is_mismatch(self):
+        claims = deepcopy(CLAIMS)
+        claims['jobs'][0]['company'] = 'Fabricated Employer'
+        claims['jobs'][0]['raw'] = 'Senior Manager, Fabricated Employer, 2020–Present'
+        history = ClaimComparisonValidator().comparison_profile(PROFILE)['experience']
+        findings = await self.comparison(claims, PROFILE, {
+            'jobs.0.company': {'status': 'MISMATCH', 'evidence': [
+                {'path': 'experience', 'value': history}],
+                'reason': 'Claimed employer absent from complete history after semantic alignment'},
+        })
+        finding = next(f for f in findings if f['claim_id'] == 'jobs.0.company')
+        self.assertEqual(finding['status'], 'MISMATCH')
+        self.assertIn('complete history after semantic record alignment is MISMATCH', COMPARISON_PROMPT)
+
+    async def test_fabricated_school_absent_from_complete_history_is_mismatch(self):
+        claims = deepcopy(CLAIMS)
+        claims['education'][0]['school'] = 'Fabricated School'
+        claims['education'][0]['raw'] = 'MBA, Fabricated School, graduated 2012'
+        history = ClaimComparisonValidator().comparison_profile(PROFILE)['education']
+        findings = await self.comparison(claims, PROFILE, {
+            'education.0.school': {'status': 'MISMATCH', 'evidence': [
+                {'path': 'education', 'value': history}],
+                'reason': 'No equivalent school in complete education history'},
+        })
+        self.assertEqual(next(f for f in findings if f['claim_id'] == 'education.0.school')['status'], 'MISMATCH')
+
+    async def test_unavailable_and_incomplete_histories_remain_unknown(self):
+        for collection in ('experience', 'education'):
+            for unavailable in ('absent', None, [{}]):
+                with self.subTest(collection=collection, evidence=unavailable):
+                    profile = deepcopy(PROFILE)
+                    if unavailable == 'absent':
+                        del profile[collection]
+                    else:
+                        profile[collection] = unavailable
+                    findings = await self.comparison(CLAIMS, profile, {})
+                    reference = 'jobs.0.company' if collection == 'experience' else 'education.0.school'
+                    finding = next(f for f in findings if f['claim_id'] == reference)
+                    self.assertEqual(finding['status'], 'UNKNOWN')
+                    self.assertEqual(finding['evidence'], [])
+        self.assertIn('Do not assume an incomplete history proves a claim is fabricated', COMPARISON_PROMPT)
+
+    async def test_explicit_empty_history_is_available_contradictory_evidence(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'] = []
+        findings = await self.comparison(CLAIMS, profile, {
+            'jobs.0.company': {'status': 'MISMATCH', 'evidence': [
+                {'path': 'experience', 'value': []}], 'reason': 'Complete history contains no employment'},
+        })
+        self.assertEqual(next(f for f in findings if f['claim_id'] == 'jobs.0.company')['status'], 'MISMATCH')
+
     async def test_skill_discrepancy_uses_explicit_skill_list(self):
         claims = deepcopy(CLAIMS)
         claims['skills'][0] = {'name': 'Rust', 'raw': 'Rust'}

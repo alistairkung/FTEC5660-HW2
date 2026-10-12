@@ -25,10 +25,23 @@ skill wording may also be equivalent. Fewer listed CV skills are not discrepanci
 Compare explicit employment and graduation years exactly: contradictory years are
 MISMATCH. Graduation year corresponds to education.end_year. Current employment
 uses is_current; a null end_year alone is not proof of current employment.
-Do not infer unsupported years or seniority. Missing/null profile values or missing
-corresponding evidence yield UNKNOWN, not automatically MISMATCH. An explicit skills
-list can contradict a claimed skill absent even after semantic matching; a missing
-skills list yields UNKNOWN. An unparsed dates or record claim should be UNKNOWN if
+Do not infer unsupported years or seniority. For HW2, supplied experience, education
+and skills collections are authoritative histories when available and sufficiently
+complete for the claim being checked. A claimed employer, job, school or degree absent
+from such a complete history after semantic record alignment is MISMATCH, not UNKNOWN.
+Cite the corresponding whole collection when its contents establish the absence.
+An explicit empty collection is available evidence of no records, not unavailable data.
+If an entire claimed job or education record is fabricated, its claimed fields are
+unsupported by that complete history; do not borrow facts from unrelated records.
+A missing exact title does NOT mean the employment record is absent: align using
+employer aliases, dates and wider context, and consider title plus seniority together.
+
+UNKNOWN is for genuinely unavailable or incomplete evidence: absent/null collections,
+missing relevant profile values, or unresolved semantic alignment that prevents a
+supported decision. Do not assume an incomplete history proves a claim is fabricated.
+An explicit complete skills list can contradict a claimed skill absent even after
+semantic matching; a missing skills list yields UNKNOWN.
+An unparsed dates or record claim should be UNKNOWN if
 its meaning cannot be established from the supplied text and evidence.
 
 Return ONLY a JSON array of findings with exactly these keys:
