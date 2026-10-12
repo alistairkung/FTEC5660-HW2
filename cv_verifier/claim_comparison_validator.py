@@ -75,6 +75,8 @@ class ClaimComparisonValidator:
                 raise ValueError("Reflection may correct only existing MATCH findings")
             if finding["status"] != "MISMATCH":
                 raise ValueError("Reflection requires a concrete MISMATCH, not uncertainty")
+            if reference.startswith("jobs."):
+                self._validate_employment_correction(finding, baseline, claims, profile)
             if not self._has_relevant_contradiction(finding):
                 raise ValueError("Reflection requires relevant contradictory evidence")
             replacements[reference] = finding
@@ -87,6 +89,65 @@ class ClaimComparisonValidator:
             raise ValueError("Claim is not eligible for reflection corrections")
         if parts[2] not in self.REFLECTION_FIELDS[parts[0]]:
             raise ValueError("Claim is not eligible for reflection corrections")
+
+    def _validate_employment_correction(self, finding: dict[str, Any], baseline: list[dict[str, Any]],
+                                        claims: dict[str, Any], profile: dict[str, Any]) -> None:
+        _, job_index, field = finding["claim_id"].split(".")
+        prefix = f"jobs.{job_index}."
+        records = set()
+        for original in baseline:
+            if original["claim_id"].startswith(prefix):
+                for citation in original["evidence"]:
+                    parts = citation["path"].split(".")
+                    if len(parts) == 3 and parts[0] == "experience":
+                        records.add(int(parts[1]))
+        if len(records) != 1:
+            raise ValueError("Reflection requires one baseline-aligned employment record")
+        record_index = records.pop()
+        record_prefix = f"experience.{record_index}."
+        if any(not citation["path"].startswith(record_prefix) for citation in finding["evidence"]):
+            raise ValueError("Employment correction cites an unrelated or unaligned record")
+        if field in ("title", "seniority"):
+            job = claims["jobs"][int(job_index)]
+            record = profile["experience"][record_index]
+            self._validate_title_seniority_correction(finding, field, job, record)
+
+    def _validate_title_seniority_correction(self, finding: dict[str, Any], field: str,
+                                            job: dict[str, Any], record: dict[str, Any]) -> None:
+        claim_title, title_level = self._title_parts(job.get("title"))
+        profile_title, profile_title_level = self._title_parts(record.get("title"))
+        claim_level = self._seniority(job.get("seniority"))
+        if field == "title":
+            claim_level = title_level or claim_level
+        profile_level = self._seniority(record.get("seniority")) or profile_title_level
+        cited_fields = {citation["path"].split(".")[-1] for citation in finding["evidence"]}
+        level_source = "seniority" if self._seniority(record.get("seniority")) else "title"
+        level_contradicts = (claim_level is not None and profile_level is not None
+                             and claim_level != profile_level and level_source in cited_fields)
+        if field == "title":
+            title_contradicts = (bool(claim_title) and bool(profile_title)
+                                 and claim_title != profile_title and "title" in cited_fields)
+            if title_contradicts or level_contradicts:
+                return
+        elif level_contradicts:
+            return
+        raise ValueError("Reflection must contradict the claimed title or explicit seniority")
+
+    def _seniority(self, value: str | None) -> str | None:
+        if not value or not value.strip():
+            return None
+        normalized = value.strip().casefold().rstrip(".")
+        return {"sr": "senior", "jr": "junior", "mid-level": "mid"}.get(normalized, normalized)
+
+    def _title_parts(self, title: str | None) -> tuple[str, str | None]:
+        """Recognize explicit qualifiers/abbreviations; never derive grade from a role."""
+        words = (title or "").casefold().replace(".", "").split()
+        qualifiers = {"senior": "senior", "sr": "senior", "junior": "junior", "jr": "junior",
+                      "mid": "mid", "mid-level": "mid"}
+        level = qualifiers.get(words[0]) if words else None
+        if level:
+            words = words[1:]
+        return " ".join("manager" if word == "mgr" else word for word in words), level
 
     def _has_relevant_contradiction(self, finding: dict[str, Any]) -> bool:
         """Check evidence relevance and reject unchanged scalar values; meaning stays with the LLM."""

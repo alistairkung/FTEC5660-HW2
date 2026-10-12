@@ -156,3 +156,35 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result['findings'], self.reflections[0]['findings'])
                 self.assertEqual(result['reflection']['corrections'], [])
                 self.assertEqual([e['stage'] for e in result['errors']], ['reflection'])
+
+    async def test_seniority_safety_preserves_baseline_or_applies_only_supported_title_correction(self):
+        for title, actual, level, path, expected in (
+            ('Manager', 'Manager', 'junior', 'seniority', 0.9),
+            ('Analyst', 'Analyst', 'senior', 'seniority', 0.9),
+            ('Senior Manager', 'Manager', 'senior', 'title', 0.9),
+            ('Senior Analyst', 'Analyst', 'junior', 'seniority', 0.1),
+            ('Engineer', 'Scientist', 'junior', 'title', 0.1),
+        ):
+            identity = deepcopy(IDENTITY)
+            identity['claims']['jobs'] = [{'raw': title, 'company': None, 'title': title,
+                'seniority': None, 'dates_raw': None, 'start_year': None, 'end_year': None, 'is_current': None}]
+            identity['profiles'][1]['experience'] = [{'title': actual, 'seniority': level}]
+            baseline = {'findings': [
+                {'claim_id': 'name', 'status': 'MATCH', 'evidence_paths': ['name'], 'reason': 'Same name'},
+                {'claim_id': 'jobs.0.title', 'status': 'MATCH',
+                 'evidence_paths': ['experience.0.title'], 'reason': 'Baseline match'}]}
+            corrections = {'corrections': [{'claim_id': 'jobs.0.title', 'status': 'MISMATCH',
+                'evidence_paths': [f'experience.0.{path}'], 'reason': 'Proposed contradiction'}]}
+            with self.subTest(title=title, actual=actual):
+                verifier, _ = self.verifier(json.dumps(baseline), identity, corrections)
+                result = await verifier.ainvoke('CV')
+                self.assertEqual(len(self.reflections), 1)
+                self.assertEqual(result['score'], expected)
+                self.assertEqual(result['findings'][0], self.reflections[0]['findings'][0])
+                if expected == 0.9:
+                    self.assertEqual(result['findings'], self.reflections[0]['findings'])
+                    self.assertEqual(result['reflection']['corrections'], [])
+                    self.assertEqual([e['stage'] for e in result['errors']], ['reflection'])
+                else:
+                    self.assertEqual([f['claim_id'] for f in result['reflection']['corrections']], ['jobs.0.title'])
+                    self.assertEqual(result['errors'], [])
