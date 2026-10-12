@@ -1,0 +1,370 @@
+{
+  "source_artifact": "pr17_evidence_paths_shadow_1791827010344410000.json",
+  "source_sha256": "7429bb74b9fa36354a8ff6fbd50fb7cc7428b332fff7bb28e5062aef41214353",
+  "sources": {
+    "CV_1.pdf": {
+      "claims": {
+        "name": {
+          "raw": "Angela Yip",
+          "value": "Angela Yip"
+        },
+        "city": {
+          "raw": "London, UK | Hometown: Stanford",
+          "value": "London",
+          "candidates": [
+            {
+              "city": "London",
+              "role": "current"
+            },
+            {
+              "city": "Stanford",
+              "role": "hometown"
+            }
+          ]
+        },
+        "jobs": [
+          {
+            "raw": "Senior Manager, Deloitte    2020 – Present",
+            "company": "Deloitte",
+            "title": "Senior Manager",
+            "seniority": null,
+            "dates_raw": "2020 – Present",
+            "start_year": 2020,
+            "end_year": null,
+            "is_current": true
+          },
+          {
+            "raw": "Senior Scientist, Carousell    2012 – 2018",
+            "company": "Carousell",
+            "title": "Senior Scientist",
+            "seniority": null,
+            "dates_raw": "2012 – 2018",
+            "start_year": 2012,
+            "end_year": 2018,
+            "is_current": false
+          }
+        ],
+        "education": [
+          {
+            "raw": "Master of Business Administration in Logistics    Graduated 2012\nStanford",
+            "school": "Stanford",
+            "degree": "Master of Business Administration",
+            "field": "Logistics",
+            "dates_raw": "Graduated 2012",
+            "graduation_year": 2012
+          }
+        ],
+        "skills": [
+          {
+            "raw": "Supply Chain",
+            "name": "Supply Chain"
+          },
+          {
+            "raw": "Inventory Management",
+            "name": "Inventory Management"
+          },
+          {
+            "raw": "Operations",
+            "name": "Operations"
+          }
+        ]
+      },
+      "profile": {
+        "id": 6337,
+        "name": "Angela Yip",
+        "headline": "Logistics Professional",
+        "city": "London",
+        "country": "UK",
+        "industry": "Logistics",
+        "status": "employed",
+        "years_experience": 9,
+        "summary": "Any nature actually mission these. Anyone a garden difference theory much they. Treatment amount how although ball short cut information.",
+        "skills": [
+          {
+            "name": "Supply Chain",
+            "proficiency": 3
+          },
+          {
+            "name": "Inventory Management",
+            "proficiency": 2
+          },
+          {
+            "name": "Operations",
+            "proficiency": 2
+          }
+        ],
+        "experience": [
+          {
+            "company": "Carousell",
+            "title": "Scientist",
+            "seniority": "senior",
+            "start_year": 2012,
+            "end_year": 2018,
+            "is_current": false
+          },
+          {
+            "company": "Deloitte",
+            "title": "Manager",
+            "seniority": "senior",
+            "start_year": 2020,
+            "end_year": null,
+            "is_current": true
+          }
+        ],
+        "education": [
+          {
+            "school": "Stanford",
+            "degree": "MBA",
+            "field": "Logistics",
+            "start_year": 2008,
+            "end_year": 2012
+          }
+        ]
+      }
+    },
+    "CV_2.pdf": {
+      "claims": {
+        "name": {
+          "raw": "Minh Pham",
+          "value": "Minh Pham"
+        },
+        "city": {
+          "raw": "Beijing, China Hong Kong",
+          "value": null,
+          "candidates": [
+            {
+              "city": "Beijing",
+              "role": "unspecified"
+            },
+            {
+              "city": "Hong Kong",
+              "role": "unspecified"
+            }
+          ]
+        },
+        "jobs": [
+          {
+            "raw": "Manager, BCG 2022 – Present",
+            "company": "BCG",
+            "title": "Manager",
+            "seniority": null,
+            "dates_raw": "2022 – Present",
+            "start_year": 2022,
+            "end_year": null,
+            "is_current": true
+          },
+          {
+            "raw": "Analyst, Tencent 2013 – 2017",
+            "company": "Tencent",
+            "title": "Analyst",
+            "seniority": null,
+            "dates_raw": "2013 – 2017",
+            "start_year": 2013,
+            "end_year": 2017,
+            "is_current": false
+          }
+        ],
+        "education": [
+          {
+            "raw": "BSc in Design The University of Hong Kong 2011",
+            "school": "The University of Hong Kong",
+            "degree": "BSc",
+            "field": "Design",
+            "dates_raw": "2011",
+            "graduation_year": 2011
+          }
+        ],
+        "skills": [
+          {
+            "raw": "UI/UX Design",
+            "name": "UI/UX Design"
+          },
+          {
+            "raw": "Prototyping",
+            "name": "Prototyping"
+          },
+          {
+            "raw": "Graphic Design",
+            "name": "Graphic Design"
+          }
+        ]
+      },
+      "profile": {
+        "id": 47,
+        "name": "Minh Pham",
+        "headline": "Design Professional",
+        "city": "Beijing",
+        "country": "China",
+        "industry": "Design",
+        "status": "open_to_work",
+        "years_experience": 12,
+        "summary": "Choose reveal second allow evening authority. Difficult official already build onto. Between measure born feel reach. Subject later generation when.",
+        "skills": [
+          {
+            "name": "UI/UX",
+            "proficiency": 1
+          },
+          {
+            "name": "Prototyping",
+            "proficiency": 5
+          },
+          {
+            "name": "Graphic Design",
+            "proficiency": 1
+          }
+        ],
+        "experience": [
+          {
+            "company": "BCG",
+            "title": "Manager",
+            "seniority": "junior",
+            "start_year": 2022,
+            "end_year": null,
+            "is_current": true
+          },
+          {
+            "company": "Tencent",
+            "title": "Analyst",
+            "seniority": "junior",
+            "start_year": 2013,
+            "end_year": 2017,
+            "is_current": false
+          }
+        ],
+        "education": [
+          {
+            "school": "The University of Hong Kong",
+            "degree": "BSc",
+            "field": "Design",
+            "start_year": 2007,
+            "end_year": 2011
+          }
+        ]
+      }
+    },
+    "CV_3.pdf": {
+      "claims": {
+        "name": {
+          "raw": "John Smith",
+          "value": "John Smith"
+        },
+        "city": {
+          "raw": "Hyderabad, India | Hometown: Delhi",
+          "value": "Hyderabad",
+          "candidates": [
+            {
+              "city": "Hyderabad",
+              "role": "current"
+            },
+            {
+              "city": "Delhi",
+              "role": "hometown"
+            }
+          ]
+        },
+        "jobs": [
+          {
+            "raw": "Engineer, Shopee    2017 – Present",
+            "company": "Shopee",
+            "title": "Engineer",
+            "seniority": null,
+            "dates_raw": "2017 – Present",
+            "start_year": 2017,
+            "end_year": null,
+            "is_current": true
+          },
+          {
+            "raw": "Engineer, Innovate HK Ltd    2006 – 2009",
+            "company": "Innovate HK Ltd",
+            "title": "Engineer",
+            "seniority": null,
+            "dates_raw": "2006 – 2009",
+            "start_year": 2006,
+            "end_year": 2009,
+            "is_current": false
+          }
+        ],
+        "education": [
+          {
+            "raw": "PhD in Consulting    Graduated 2006\nSeoul National University",
+            "school": "Seoul National University",
+            "degree": "PhD",
+            "field": "Consulting",
+            "dates_raw": "Graduated 2006",
+            "graduation_year": 2006
+          }
+        ],
+        "skills": [
+          {
+            "raw": "Strategy",
+            "name": "Strategy"
+          },
+          {
+            "raw": "Problem Solving",
+            "name": "Problem Solving"
+          },
+          {
+            "raw": "Microsoft PowerPoint",
+            "name": "Microsoft PowerPoint"
+          }
+        ]
+      },
+      "profile": {
+        "id": 6541,
+        "name": "John Smith",
+        "headline": "Consulting Professional",
+        "city": "Hyderabad",
+        "country": "India",
+        "industry": "Consulting",
+        "status": "hiring",
+        "years_experience": 3,
+        "summary": "Board current sport century. Never authority help fast take field question. Father into debate them name. Weight big Democrat affect. Spring show seven card too. Base serve mission receive visit her.",
+        "skills": [
+          {
+            "name": "Strategy",
+            "proficiency": 1
+          },
+          {
+            "name": "Problem Solving",
+            "proficiency": 3
+          },
+          {
+            "name": "PowerPoint",
+            "proficiency": 3
+          },
+          {
+            "name": "Data Analysis",
+            "proficiency": 4
+          }
+        ],
+        "experience": [
+          {
+            "company": "Innovate HK Ltd",
+            "title": "Engineer",
+            "seniority": "mid",
+            "start_year": 2006,
+            "end_year": 2009,
+            "is_current": false
+          },
+          {
+            "company": "Shopee",
+            "title": "Engineer",
+            "seniority": "junior",
+            "start_year": 2017,
+            "end_year": null,
+            "is_current": true
+          }
+        ],
+        "education": [
+          {
+            "school": "Seoul National University",
+            "degree": "PhD",
+            "field": "Consulting",
+            "start_year": 2002,
+            "end_year": 2006
+          }
+        ]
+      }
+    }
+  }
+}
