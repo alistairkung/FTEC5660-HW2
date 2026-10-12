@@ -68,6 +68,12 @@ async def load_mcp_tools() -> list[Any]:
     return await client.get_tools()
 
 
+from cv_verifier.claim_extractor import ClaimExtractor
+from cv_verifier.profile_retriever import ProfileRetriever
+from cv_verifier.claim_validator import ClaimValidator
+from cv_verifier.candidate_pipeline import CandidatePipeline
+
+
 def build_agent(tools: list[Any]) -> Any:
     """Create and return your agent once.
 
@@ -83,8 +89,10 @@ def build_agent(tools: list[Any]) -> Any:
     from .env.
     """
     ### YOUR CODE HERE
-    _ = tools
-    return None
+    from langchain_deepseek import ChatDeepSeek
+
+    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=2)
+    return CandidatePipeline(ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools))
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
