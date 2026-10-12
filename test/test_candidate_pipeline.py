@@ -147,3 +147,26 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(agent.ranking_validator, CandidateRankingValidator)
         self.assertIsInstance(agent.identity_resolver, IdentityResolver)
         self.assertIsInstance(agent.identity_validator, IdentityDecisionValidator)
+
+    async def test_only_prioritization_sends_thinking_disabled_to_model(self):
+        received_options = []
+
+        def respond(prompt, **options):
+            received_options.append(options)
+            system = prompt.to_messages()[0].content
+            if system.startswith('Extract'):
+                output = CLAIMS
+            elif system.startswith('Shortlist'):
+                output = [1]
+            else:
+                output = {'candidate_id': None, 'reason': 'Insufficient evidence'}
+            return AIMessage(content=json.dumps(output))
+
+        with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)):
+            agent = build_agent([])
+        await agent.extractor.extract('CV')
+        await agent.prioritizer.prioritize(CLAIMS, [{'id': 1}])
+        await agent.identity_resolver.resolve(CLAIMS, [{'id': 1}])
+        self.assertEqual(received_options, [
+            {}, {'extra_body': {'thinking': {'type': 'disabled'}}}, {},
+        ])

@@ -99,7 +99,9 @@ def build_agent(tools: list[Any]) -> Any:
     ranking_llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0)
     return CandidatePipeline(
         ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools),
-        CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
+        CandidatePrioritizer(ranking_llm.bind(
+            extra_body={"thinking": {"type": "disabled"}},
+        )), CandidateRankingValidator(),
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
 

@@ -71,7 +71,7 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
         claims = {"name": {"raw": "Person", "value": "Person"},
                   "city": {"raw": "London", "value": "London"},
                   "jobs": [], "education": [], "skills": []}
-        def model_response(prompt):
+        def model_response(prompt, **_options):
             system = prompt.to_messages()[0].content
             if system.startswith("Extract"):
                 result = claims
