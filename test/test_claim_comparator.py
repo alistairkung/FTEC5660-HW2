@@ -49,7 +49,10 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         captured = []
         def respond(prompt):
             captured.extend(prompt.to_messages())
-            return AIMessage(content=json.dumps(findings))
+            return AIMessage(content=json.dumps({'findings': [
+                {'claim_id': f['claim_id'], 'status': f['status'],
+                 'evidence_paths': [e['path'] for e in f['evidence']], 'reason': f['reason']}
+                for f in findings]}))
         output = await ClaimComparator(RunnableLambda(respond)).compare(claims, profile)
         self.assertIs(contract.validate(output, claims, profile), output)
         self.assertEqual(output, findings)
@@ -59,7 +62,26 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context['claim_catalog'], contract.claim_catalog(claims))
         self.assertNotIn('headline', context['profile'])
         self.assertNotIn('hometown', context['profile'])
+        for entry in context['profile'].get('experience') or []:
+            self.assertNotIn('description', entry)
         return output
+
+    async def test_reconstructs_numeric_and_boolean_values_from_paths_only(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][0]['description'] = 'Excluded job description'
+        findings = await self.comparison(CLAIMS, profile, {
+            'jobs.0.start_year': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.1.start_year', 'value': 2020}], 'reason': 'Same start year'},
+            'jobs.0.is_current': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.1.is_current', 'value': True}], 'reason': 'Both current'},
+            'jobs.1.is_current': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.0.is_current', 'value': False}], 'reason': 'Both ended'},
+        })
+        for reference, expected_type in (('jobs.0.start_year', int), ('jobs.0.is_current', bool),
+                                         ('jobs.1.is_current', bool)):
+            finding = next(f for f in findings if f['claim_id'] == reference)
+            self.assertIs(type(finding['cv_claim']['value']), expected_type)
+            self.assertIs(type(finding['evidence'][0]['value']), expected_type)
 
     async def test_semantic_title_and_degree_equivalences_with_reordered_records(self):
         await self.comparison(CLAIMS, PROFILE, {
@@ -166,7 +188,8 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         })
 
     async def test_strict_json_rejects_malformed_response(self):
-        for content in ('not JSON', '[{"claim_id": "name"}', '```json\n[]\n```'):
+        for content in ('not JSON', '[{"claim_id": "name"}', '```json\n[]\n```',
+                        '[]', '{"findings": []}', '{"findings": null}'):
             with self.subTest(content=content), self.assertRaises(ValueError):
                 comparator = ClaimComparator(RunnableLambda(lambda _: AIMessage(content=content)))
                 await comparator.compare(CLAIMS, PROFILE)
@@ -175,9 +198,12 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         options = []
         def respond(_, **kwargs):
             options.append(kwargs)
-            return AIMessage(content='[]')
+            return AIMessage(content=json.dumps({'findings': [
+                {'claim_id': ref, 'status': 'UNKNOWN', 'evidence_paths': [], 'reason': 'Unavailable'}
+                for ref in ClaimComparisonValidator().claim_catalog(CLAIMS)]}))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)) as factory:
             comparator = build_claim_comparator()
         factory.assert_called_once_with(model='deepseek-v4-flash', timeout=60, max_retries=0)
         await comparator.compare(CLAIMS, PROFILE)
-        self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}}}])
+        self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}},
+                                    'response_format': {'type': 'json_object'}}])

@@ -87,7 +87,10 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                     2: {'id': 2, 'name': 'Other', 'city': 'London', 'experience': [], 'education': [], 'skills': []}}
         compared_names = []
         def respond(prompt, **options):
-            self.assertEqual(options, {'extra_body': {'thinking': {'type': 'disabled'}}})
+            expected_options = {'extra_body': {'thinking': {'type': 'disabled'}}}
+            if prompt.to_messages()[0].content.startswith('Compare'):
+                expected_options['response_format'] = {'type': 'json_object'}
+            self.assertEqual(options, expected_options)
             messages = prompt.to_messages()
             if messages[0].content.startswith('Extract'):
                 output = claims
@@ -98,9 +101,9 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
             else:
                 context = json.loads(messages[1].content)
                 compared_names.append(context['profile']['name'])
-                output = [{'claim_id': reference, 'cv_claim': claim, 'status': 'MATCH',
-                           'evidence': [{'path': reference, 'value': context['profile'][reference]}],
-                           'reason': 'Equivalent'} for reference, claim in context['claim_catalog'].items()]
+                output = {'findings': [{'claim_id': reference, 'status': 'MATCH',
+                           'evidence_paths': [reference], 'reason': 'Equivalent'}
+                           for reference in context['claim_catalog']]}
             return AIMessage(content=json.dumps(output))
         def blocks(value):
             return [{'type': 'text', 'text': json.dumps(value)}]

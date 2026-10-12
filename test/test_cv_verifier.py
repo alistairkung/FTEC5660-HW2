@@ -32,7 +32,10 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
     async def test_compares_only_validated_selected_profile_not_first_retrieved(self):
         findings = [{'claim_id': 'name', 'cv_claim': CLAIMS['name'], 'status': 'MATCH',
                      'evidence': [{'path': 'name', 'value': 'Person'}], 'reason': 'Same name'}]
-        verifier, captured = self.verifier(json.dumps(findings))
+        decisions = {'findings': [{'claim_id': f['claim_id'], 'status': f['status'],
+                                  'evidence_paths': [e['path'] for e in f['evidence']],
+                                  'reason': f['reason']} for f in findings]}
+        verifier, captured = self.verifier(json.dumps(decisions))
         result = await verifier.ainvoke('CV')
         self.assertEqual(captured[0]['profile']['name'], 'Person')
         self.assertEqual(result['score'], 0.9)
@@ -59,7 +62,10 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
                              'evidence': [] if status == 'UNKNOWN' else [
                                  {'path': 'name', 'value': 'Different Name'}],
                              'reason': 'Contradiction' if status == 'MISMATCH' else 'Insufficient evidence'}]
-                verifier, _ = self.verifier(json.dumps(findings), identity)
+                decisions = {'findings': [{'claim_id': f['claim_id'], 'status': f['status'],
+                                          'evidence_paths': [e['path'] for e in f['evidence']],
+                                          'reason': f['reason']} for f in findings]}
+                verifier, _ = self.verifier(json.dumps(decisions), identity)
                 result = await verifier.ainvoke('CV')
                 self.assertEqual(result['score'], expected)
                 self.assertEqual(result['findings'], findings)
