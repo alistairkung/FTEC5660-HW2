@@ -1,7 +1,6 @@
 import json
 from typing import Any
 
-from .extraction import validate_claims
 
 def decode_mcp_result(blocks: Any) -> Any:
     """Decode the server's JSON text content and surface server errors."""
@@ -17,27 +16,23 @@ def decode_mcp_result(blocks: Any) -> Any:
     return result
 
 
-class CandidateRetrieval:
-    """Contract-proving slice; retrieved profiles never establish identity."""
+class ProfileRetriever:
+    """Search and fetch an arbitrary two-profile sample; never establish identity.
 
-    def __init__(self, extractor: Any, tools: list[Any]):
-        self.extractor = extractor
+    retrieval_complete means every selected lookup succeeded, including zero hits.
+    retrieval_sampled means returned search hits were omitted by the two-profile cap.
+    Neither flag implies exhaustive search coverage beyond the server result cap.
+    """
+
+    def __init__(self, tools: list[Any]):
         self.tools = {tool.name: tool for tool in tools}
 
-    async def ainvoke(self, cv: str) -> dict[str, Any]:
-        result = {"claims": None, "search_hits": [], "profiles": [],
-                  "identity": "unresolved", "retrieval_complete": False, "errors": []}
-        stage = "extraction"
+    async def retrieve(self, name: str, city: str | None) -> dict[str, Any]:
+        result = {"search_hits": [], "profiles": [], "retrieval_complete": False,
+                  "retrieval_sampled": False, "errors": []}
         try:
-            claims = await self.extractor.ainvoke({"cv": cv})
-            validate_claims(claims)
-            name = claims["name"]["value"]
-            if not name or not name.strip():
-                raise ValueError("Candidate name is missing")
-            result["claims"] = claims
-            stage = "search"
             blocks = await self.tools["search_linkedin_people"].ainvoke({
-                "q": name, "location": claims["city"]["value"],
+                "q": name, "location": city,
                 "limit": 20, "fuzzy": True,
             })
             hits = decode_mcp_result(blocks)
@@ -47,9 +42,10 @@ class CandidateRetrieval:
                 raise ValueError("Expected search hits with integer IDs")
             result["search_hits"] = hits
         except Exception as error:
-            result["errors"].append({"stage": stage, "message": str(error)})
+            result["errors"].append({"stage": "search", "message": str(error)})
             return result
 
+        result["retrieval_sampled"] = len(hits) > 2
         # Search order is arbitrary. These profiles are a bounded sample, not a ranking.
         for hit in hits[:2]:
             try:
@@ -65,7 +61,7 @@ class CandidateRetrieval:
             except Exception as error:
                 result["errors"].append({"stage": "profile", "person_id": hit["id"],
                                          "message": str(error)})
-        result["retrieval_complete"] = len(result["profiles"]) == len(hits)
+        result["retrieval_complete"] = len(result["profiles"]) == min(2, len(hits))
         return result
 
 

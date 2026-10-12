@@ -69,7 +69,9 @@ async def load_mcp_tools() -> list[Any]:
 
 
 from cv_verifier.extraction import build_extractor
-from cv_verifier.retrieval import CandidateRetrieval
+from cv_verifier.retrieval import ProfileRetriever
+from cv_verifier.validation import ClaimValidator
+from cv_verifier.pipeline import CandidatePipeline
 
 
 def build_agent(tools: list[Any]) -> Any:
@@ -87,7 +89,7 @@ def build_agent(tools: list[Any]) -> Any:
     from .env.
     """
     ### YOUR CODE HERE
-    return CandidateRetrieval(build_extractor(MODEL_NAME), tools)
+    return CandidatePipeline(build_extractor(MODEL_NAME), ClaimValidator(), ProfileRetriever(tools))
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
