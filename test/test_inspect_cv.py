@@ -79,9 +79,9 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
                 result = [3, 1, 2]
             elif system.startswith("Compare"):
                 context = json.loads(prompt.to_messages()[1].content)
-                result = [{"claim_id": reference, "cv_claim": claim, "status": "UNKNOWN",
-                           "evidence": [], "reason": "Unavailable evidence"}
-                          for reference, claim in context["claim_catalog"].items()]
+                result = {"findings": [{"claim_id": reference, "status": "UNKNOWN",
+                           "evidence_paths": [], "reason": "Unavailable evidence"}
+                          for reference in context["claim_catalog"]]}
             else:
                 result = {"candidate_id": 3, "reason": "Supporting evidence"}
             return AIMessage(content=json.dumps(result))

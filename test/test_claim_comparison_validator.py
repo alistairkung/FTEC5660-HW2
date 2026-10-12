@@ -11,9 +11,91 @@ FINDINGS = [
     {'claim_id': 'skills.0.name', 'cv_claim': {'raw': 'Python', 'value': 'Python'}, 'status': 'MATCH',
      'evidence': [{'path': 'skills.0.name', 'value': 'Python'}], 'reason': 'Same skill'},
 ]
+DECISIONS = {'findings': [
+    {'claim_id': finding['claim_id'], 'status': finding['status'],
+     'evidence_paths': [citation['path'] for citation in finding['evidence']],
+     'reason': finding['reason']} for finding in FINDINGS]}
 
 
 class ClaimComparisonValidatorTests(unittest.TestCase):
+    def test_reconstructs_canonical_claims_and_evidence_without_mutating_inputs(self):
+        claims, profile, decisions = deepcopy(CLAIMS), deepcopy(PROFILE), deepcopy(DECISIONS)
+        validator = ClaimComparisonValidator()
+        findings = validator.reconstruct(decisions, claims, profile)
+        self.assertEqual(findings, FINDINGS)
+        self.assertEqual({f['claim_id']: f['cv_claim'] for f in findings}, validator.claim_catalog(claims))
+        findings[0]['cv_claim']['raw'] = 'changed'
+        findings[0]['evidence'][0]['value'] = 'changed'
+        self.assertEqual(claims, CLAIMS)
+        self.assertEqual(profile, PROFILE)
+        self.assertEqual(decisions, DECISIONS)
+
+    def test_reconstruction_preserves_numeric_boolean_and_string_types(self):
+        for value in (2020, True, False, '2020', 'true'):
+            with self.subTest(value=value):
+                claims = deepcopy(CLAIMS)
+                claims['skills'] = []
+                claims['jobs'] = [{'raw': 'Original CV wording', 'company': None, 'title': None,
+                                   'seniority': None, 'start_year': None, 'end_year': None,
+                                   'is_current': None, 'dates_raw': None}]
+                field = 'is_current' if type(value) is bool else 'start_year' if type(value) is int else 'company'
+                claims['jobs'][0][field] = value
+                profile = {'name': 'Person', 'experience': [{field: value}]}
+                output = {'findings': [deepcopy(DECISIONS['findings'][0]),
+                    {'claim_id': f'jobs.0.{field}', 'status': 'MATCH',
+                     'evidence_paths': [f'experience.0.{field}'], 'reason': 'Same supplied value'}]}
+                finding = ClaimComparisonValidator().reconstruct(output, claims, profile)[1]
+                self.assertIs(type(finding['cv_claim']['value']), type(value))
+                self.assertIs(type(finding['evidence'][0]['value']), type(value))
+                self.assertEqual(finding['cv_claim']['value'], value)
+                self.assertEqual(finding['evidence'][0]['value'], value)
+
+    def test_reconstruction_rejects_missing_duplicate_or_invented_claim_ids(self):
+        for references in ([], ['name'], ['name', 'name'], ['name', 'skills.99.name'], ['name', None]):
+            output = deepcopy(DECISIONS)
+            output['findings'] = [dict(DECISIONS['findings'][0], claim_id=ref) for ref in references]
+            with self.subTest(references=references), self.assertRaises(ValueError):
+                ClaimComparisonValidator().reconstruct(output, CLAIMS, PROFILE)
+
+    def test_reconstruction_rejects_invalid_duplicate_excluded_or_null_paths(self):
+        profile = deepcopy(PROFILE)
+        profile.update(city=None, hometown='Excluded', experience=[{'description': 'Excluded'}])
+        for paths in (None, 'name', [None], [[]], ['skills.9.name'], ['headline'],
+                      ['hometown'], ['experience.0.description'], ['city'], ['name', 'name'], []):
+            output = deepcopy(DECISIONS)
+            output['findings'][0]['evidence_paths'] = paths
+            with self.subTest(paths=paths), self.assertRaises(ValueError):
+                ClaimComparisonValidator().reconstruct(output, CLAIMS, profile)
+
+    def test_reconstruction_rejects_malformed_envelopes_and_decisions(self):
+        for output in (None, [], {}, {'findings': None}, {'findings': {}},
+                       {'findings': [], 'score': 0.9}, {'findings': [None]}):
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                ClaimComparisonValidator().reconstruct(output, CLAIMS, PROFILE)
+        mutations = [(key, None) for key in DECISIONS['findings'][0]]
+        mutations += [('status', 'VALID'), ('status', []), ('reason', ''), ('reason', '  '),
+                      ('reason', 3), ('cv_claim', {'value': '2020', 'raw': 'invented'}),
+                      ('evidence', [{'path': 'name', 'value': 'invented'}])]
+        for key, value in mutations:
+            output = deepcopy(DECISIONS)
+            output['findings'][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                ClaimComparisonValidator().reconstruct(output, CLAIMS, PROFILE)
+        for key in DECISIONS['findings'][0]:
+            output = deepcopy(DECISIONS)
+            del output['findings'][0][key]
+            with self.subTest(missing=key), self.assertRaises(ValueError):
+                ClaimComparisonValidator().reconstruct(output, CLAIMS, PROFILE)
+
+    def test_reconstruction_unknown_without_evidence_and_empty_absence_collection(self):
+        for status, paths in (('UNKNOWN', []), ('MISMATCH', ['skills'])):
+            output = deepcopy(DECISIONS)
+            output['findings'][1].update(status=status, evidence_paths=paths)
+            profile = dict(PROFILE, skills=[])
+            findings = ClaimComparisonValidator().reconstruct(output, CLAIMS, profile)
+            self.assertEqual(findings[1]['status'], status)
+            self.assertEqual(findings[1]['evidence'], [] if not paths else [{'path': 'skills', 'value': []}])
+
     def test_valid_findings_returned_unchanged(self):
         findings = deepcopy(FINDINGS)
         self.assertIs(ClaimComparisonValidator().validate(findings, CLAIMS, PROFILE), findings)

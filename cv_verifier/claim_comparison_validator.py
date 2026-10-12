@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from typing import Any
 
 
@@ -43,6 +44,42 @@ class ClaimComparisonValidator:
                 {field: entry[field] for field in fields if field in entry} for entry in entries
             ] if isinstance(entries, list) else entries
         return selected
+
+    def reconstruct(self, output: Any, claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Resolve model decisions against canonical inputs, then validate findings."""
+        if not isinstance(output, dict) or set(output) != {"findings"}:
+            raise ValueError("Comparison output requires exactly a findings envelope")
+        if not isinstance(output["findings"], list):
+            raise ValueError("Comparison findings must be a list")
+        catalog = self.claim_catalog(claims)
+        evidence = self._evidence_catalog(self.comparison_profile(profile))
+        findings = [self._reconstruct_finding(decision, catalog, evidence)
+                    for decision in output["findings"]]
+        return self.validate(findings, claims, profile)
+
+    def _reconstruct_finding(self, decision: Any, catalog: dict, evidence: dict) -> dict[str, Any]:
+        required = {"claim_id", "status", "evidence_paths", "reason"}
+        if not isinstance(decision, dict) or set(decision) != required:
+            raise ValueError("Decision requires claim_id, status, evidence_paths and reason")
+        reference = decision["claim_id"]
+        if not isinstance(reference, str) or reference not in catalog:
+            raise ValueError("Finding refers to a nonexistent CV claim")
+        paths = decision["evidence_paths"]
+        if not isinstance(paths, list):
+            raise ValueError("Evidence paths must be a list")
+        citations = []
+        seen = set()
+        for path in paths:
+            if not isinstance(path, str) or path not in evidence:
+                raise ValueError("Evidence refers to a nonexistent or excluded profile field")
+            if path in seen:
+                raise ValueError("Duplicate evidence path")
+            if evidence[path] is None:
+                raise ValueError("Missing profile values are not supporting or contradictory evidence")
+            seen.add(path)
+            citations.append({"path": path, "value": deepcopy(evidence[path])})
+        return {"claim_id": reference, "cv_claim": deepcopy(catalog[reference]),
+                "status": decision["status"], "evidence": citations, "reason": decision["reason"]}
 
     def validate(self, findings: Any, claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(findings, list):
