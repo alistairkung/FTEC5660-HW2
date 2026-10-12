@@ -15,6 +15,7 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
         result = {
             "claims": {"name": {"raw": "陳 Example", "value": "陳 Example"}},
             "search_hits": [{"id": 1}, {"id": 2}],
+            "ranked_candidate_ids": [2, 1],
             "profiles": [{"id": 1}], "identity": "unresolved",
             "retrieval_sampled": False, "retrieval_complete": False,
             "errors": [{"stage": "profile", "person_id": 2, "message": "failed"}],

@@ -3,11 +3,10 @@ from typing import Any
 
 
 class ProfileRetriever:
-    """Search and fetch an arbitrary two-profile sample; never establish identity.
+    """Search and fetch at most two supplied profiles; never establish identity.
 
-    retrieval_complete means every selected lookup succeeded, including zero hits.
-    retrieval_sampled means returned search hits were omitted by the two-profile cap.
-    Neither flag implies exhaustive search coverage beyond the server result cap.
+    Search preserves returned metadata. Retrieval follows supplied order and keeps
+    partial failures. The pipeline owns selection and coverage flags.
     """
 
     MAX_PROFILES = 2
@@ -15,24 +14,7 @@ class ProfileRetriever:
     def __init__(self, tools: list[Any]):
         self.tools = {tool.name: tool for tool in tools}
 
-    async def retrieve(self, name: str, city: str | None) -> dict[str, Any]:
-        try:
-            hits = await self._search_people(name, city)
-        except Exception as error:
-            return self._search_failure(error)
-
-        # Search order is arbitrary; selection is a sample, not a ranking.
-        selected_hits = hits[:self.MAX_PROFILES]
-        profiles, errors = await self._retrieve_profiles(selected_hits)
-        return {
-            "search_hits": hits,
-            "profiles": profiles,
-            "retrieval_complete": len(profiles) == len(selected_hits),
-            "retrieval_sampled": len(hits) > len(selected_hits),
-            "errors": errors,
-        }
-
-    async def _search_people(self, name: str, city: str | None) -> list[dict[str, Any]]:
+    async def search(self, name: str, city: str | None) -> list[dict[str, Any]]:
         blocks = await self.tools["search_linkedin_people"].ainvoke({
             "q": name, "location": city, "limit": 20, "fuzzy": True,
         })
@@ -46,19 +28,12 @@ class ProfileRetriever:
                 raise ValueError("Search hit ID must be an integer")
         return hits
 
-    def _search_failure(self, error: Exception) -> dict[str, Any]:
-        return {
-            "search_hits": [], "profiles": [],
-            "retrieval_complete": False, "retrieval_sampled": False,
-            "errors": [{"stage": "search", "message": str(error)}],
-        }
-
-    async def _retrieve_profiles(
+    async def retrieve_profiles(
         self, hits: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         profiles = []
         errors = []
-        for hit in hits:
+        for hit in hits[:self.MAX_PROFILES]:
             person_id = hit["id"]
             try:
                 profiles.append(await self._get_profile(person_id))
