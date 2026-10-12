@@ -75,7 +75,7 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
             system = prompt.to_messages()[0].content
             if system.startswith("Extract"):
                 result = claims
-            elif system.startswith("Order"):
+            elif system.startswith("Shortlist"):
                 result = [3, 1, 2]
             else:
                 result = {"candidate_id": 3, "reason": "Supporting evidence"}

@@ -155,6 +155,9 @@ class CandidatePipeline:
             return [], []
         try:
             proposed = await self.prioritizer.prioritize(claims, hits)
-            return self.ranking_validator.validate(proposed, hits), []
+            shortlist = self.ranking_validator.validate(proposed, hits)
+            selected_ids = set(shortlist)
+            remaining_ids = [hit["id"] for hit in hits if hit["id"] not in selected_ids]
+            return shortlist + remaining_ids, []
         except Exception as error:
             return [hit["id"] for hit in hits], [{"stage": "prioritization", "message": str(error)}]

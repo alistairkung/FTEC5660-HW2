@@ -64,7 +64,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(lookup.ainvoke.await_count, 2)
 
     async def test_invalid_ranking_or_model_failure_falls_back_and_keeps_partial_errors(self):
-        for ranking in ([1], [1, 1, 2], [1, 2, 99], 'malformed', RuntimeError('failed')):
+        for ranking in ([], [1, 1, 2], [1, 2, 99], 'malformed', RuntimeError('failed')):
             with self.subTest(ranking=ranking):
                 pipeline, _, retriever, prioritizer = self.pipeline(ranking=ranking)
                 if isinstance(ranking, Exception):
@@ -87,6 +87,32 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['errors'], [])
         self.assertTrue(result['retrieval_complete'])
         self.assertFalse(result['retrieval_sampled'])
+
+    async def test_shortlist_keeps_remaining_candidates_in_original_order_with_llm_fake(self):
+        pipeline, _, retriever, _ = self.pipeline(hits=[{'id': n} for n in range(1, 11)])
+        pipeline.prioritizer = CandidatePrioritizer(RunnableLambda(lambda _: AIMessage(content='[5, 2]')))
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(result['ranked_candidate_ids'], [5, 2, 1, 3, 4, 6, 7, 8, 9, 10])
+        self.assertEqual(result['attempted_candidate_ids'], [5, 2, 1, 3, 4, 6, 7, 8])
+        self.assertEqual(retriever.retrieve_profiles.await_count, 4)
+        self.assertFalse(any(error['stage'] == 'prioritization' for error in result['errors']))
+        self.assertEqual(result['identity'], 'unresolved')
+
+    async def test_invalid_llm_shortlists_fall_back_without_repair(self):
+        for output in ('[]', '[1, 1]', '[99]', '[true]', '[1', RuntimeError('timed out')):
+            with self.subTest(output=output):
+                pipeline, _, _, _ = self.pipeline()
+                calls = []
+                def respond(_):
+                    calls.append(1)
+                    if isinstance(output, Exception):
+                        raise output
+                    return AIMessage(content=output)
+                pipeline.prioritizer = CandidatePrioritizer(RunnableLambda(respond))
+                result = await pipeline.ainvoke('CV')
+                self.assertEqual(result['ranked_candidate_ids'], [1, 2, 3])
+                self.assertEqual(result['errors'][0]['stage'], 'prioritization')
+                self.assertEqual(len(calls), 1)
 
     async def test_extraction_validation_and_search_failures_stop_later_stages(self):
         for stage in ('extraction', 'validation', 'search'):
