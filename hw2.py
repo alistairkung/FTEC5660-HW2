@@ -77,6 +77,34 @@ from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 from cv_verifier.claim_comparator import ClaimComparator
+from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
+from cv_verifier.cv_scorer import CVScorer
+from cv_verifier.cv_verifier import CVVerifier
+
+PER_CV_TIMEOUT_SECONDS = 180
+
+
+def _write_checkpoint(scores: dict[str, float]) -> None:
+    """Atomically persist completed scores; final correctness belongs to the runner."""
+    import os
+    import tempfile
+
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", newline="",
+                                         dir=Path.cwd(), prefix=".results-", suffix=".csv",
+                                         delete=False) as handle:
+            temporary = Path(handle.name)
+            writer = csv.writer(handle)
+            writer.writerow(["cv", "score", "correctness"])
+            for name, score in scores.items():
+                writer.writerow([name, f"{score:.4f}", "pending final grading: checkpoint"])
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, Path("results.csv"))
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def build_claim_comparator() -> ClaimComparator:
@@ -109,11 +137,12 @@ def build_agent(tools: list[Any]) -> Any:
     inference_options = {"thinking": {"type": "disabled"}}
     llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=2).bind(extra_body=inference_options)
     ranking_llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(extra_body=inference_options)
-    return CandidatePipeline(
+    identity_pipeline = CandidatePipeline(
         ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools),
         CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
+    return CVVerifier(identity_pipeline, ClaimComparator(ranking_llm), ClaimComparisonValidator(), CVScorer())
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
@@ -135,8 +164,25 @@ async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
     shared by the whole class.
     """
     ### YOUR CODE HERE
-    _ = agent
-    return {name: None for name in cvs}
+    semaphore = asyncio.Semaphore(3)
+    scores = {}
+
+    async def verify_one(name: str, text: str) -> None:
+        async with semaphore:
+            try:
+                result = await asyncio.wait_for(agent.ainvoke(text), timeout=PER_CV_TIMEOUT_SECONDS)
+                score = parse_score(result.get("score"))
+                scores[name] = score if score is not None else 0.5
+            except Exception:
+                scores[name] = 0.5
+            try:
+                _write_checkpoint({completed: scores[completed] for completed in cvs if completed in scores})
+            except Exception as error:
+                import sys
+                print(f"Checkpoint unavailable: {error}", file=sys.stderr)
+
+    await asyncio.gather(*(verify_one(name, text) for name, text in cvs.items()))
+    return {name: scores[name] for name in cvs}
 
 
 # Everything below is provided runner/scoring code. No edits are needed.
