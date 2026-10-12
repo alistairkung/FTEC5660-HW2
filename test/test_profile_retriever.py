@@ -1,107 +1,76 @@
 import json
 import unittest
 from unittest.mock import AsyncMock, call
-
 from cv_verifier.profile_retriever import ProfileRetriever
 
 
-def full_profile(person_id):
-    return {"id": person_id, "name": "Example Person",
-            "experience": [], "education": [], "skills": []}
+def profile(person_id):
+    return {'id': person_id, 'name': 'Person', 'experience': [], 'education': [], 'skills': []}
 
 
 def blocks(value):
-    return [{"type": "text", "text": json.dumps(value)}]
+    return [{'type': 'text', 'text': json.dumps(value)}]
 
 
 class ProfileRetrieverTests(unittest.IsolatedAsyncioTestCase):
-    def retriever(self, hits=None, profile_results=None):
-        search = AsyncMock()
-        search.name = "search_linkedin_people"
-        search.ainvoke.return_value = blocks([] if hits is None else hits)
-        profile = AsyncMock()
-        profile.name = "get_linkedin_profile"
-        profile.ainvoke.side_effect = profile_results or []
-        return ProfileRetriever([search, profile]), search, profile
+    def retriever(self):
+        search, lookup = AsyncMock(), AsyncMock()
+        search.name, lookup.name = 'search_linkedin_people', 'get_linkedin_profile'
+        return ProfileRetriever([search, lookup]), search, lookup
 
-    async def test_bounded_retrieval_preserves_all_search_hits(self):
-        hits = [{"id": n, "name": "Example Person"} for n in range(1, 5)]
-        agent, search, profile = self.retriever(hits, [blocks(full_profile(1)), blocks(full_profile(2))])
-        result = await agent.retrieve("Example Person", "Hong Kong")
-        self.assertEqual(result["search_hits"], hits)
-        self.assertEqual(result["profiles"], [full_profile(1), full_profile(2)])
-        self.assertTrue(result["retrieval_complete"])
-        self.assertTrue(result["retrieval_sampled"])
-        self.assertEqual(profile.ainvoke.await_args_list,
-                         [call({"person_id": 1}), call({"person_id": 2})])
+    async def test_search_preserves_all_metadata_and_uses_expected_arguments(self):
+        retriever, search, _ = self.retriever()
+        hits = [{'id': n, 'headline': 'example'} for n in range(20)]
+        search.ainvoke.return_value = blocks(hits)
+        self.assertEqual(await retriever.search('Person', 'London'), hits)
         search.ainvoke.assert_awaited_once_with(
-            {"q": "Example Person", "location": "Hong Kong", "limit": 20, "fuzzy": True})
+            {'q': 'Person', 'location': 'London', 'limit': 20, 'fuzzy': True})
 
-    async def test_empty_search_is_success_without_profile_calls(self):
-        agent, search, profile = self.retriever()
-        search.ainvoke.return_value = []
-        result = await agent.retrieve("Example Person", "Hong Kong")
-        self.assertEqual(result["errors"], [])
-        self.assertTrue(result["retrieval_complete"])
-        self.assertFalse(result["retrieval_sampled"])
-        profile.ainvoke.assert_not_awaited()
-
-    async def test_failed_profile_preserves_search_and_other_profile(self):
-        hits = [{"id": 1}, {"id": 2}]
-        for failure in (RuntimeError("network failed"), blocks({"error": "unknown id"}), blocks({"id": 99})):
-            with self.subTest(failure=failure):
-                agent, _, _ = self.retriever(hits=hits, profile_results=[failure, blocks(full_profile(2))])
-                result = await agent.retrieve("Example Person", "Hong Kong")
-                self.assertEqual(result["search_hits"], hits)
-                self.assertEqual(result["profiles"], [full_profile(2)])
-                self.assertEqual(result["errors"][0]["person_id"], 1)
-                self.assertFalse(result["retrieval_complete"])
-
-    async def test_search_error_prevents_profile_calls(self):
-        agent, search, profile = self.retriever()
-        search.ainvoke.return_value = blocks({"error": "unavailable"})
-        result = await agent.retrieve("Example Person", "Hong Kong")
-        self.assertEqual(result["errors"][0]["stage"], "search")
-        profile.ainvoke.assert_not_awaited()
-
-    async def test_malformed_search_results_fail_without_profile_calls(self):
-        for response in (blocks({}), blocks([{"id": True}]), blocks([{}]),
-                         [{"type": "text", "text": "not JSON"}]):
+    async def test_empty_search_returns_empty_list(self):
+        for response in ([], blocks([])):
             with self.subTest(response=response):
-                retriever, search, profile = self.retriever()
+                retriever, search, _ = self.retriever()
                 search.ainvoke.return_value = response
-                result = await retriever.retrieve("Person", None)
-                self.assertEqual(result["errors"][0]["stage"], "search")
-                self.assertFalse(result["retrieval_complete"])
-                profile.ainvoke.assert_not_awaited()
+                self.assertEqual(await retriever.search('Person', None), [])
 
-    async def test_sampling_and_lookup_failure_are_independent(self):
-        for hit_count in (2, 4):
-            for failed in (False, True):
-                with self.subTest(hit_count=hit_count, failed=failed):
-                    retriever, _, _ = self.retriever(
-                        hits=[{"id": n} for n in range(1, hit_count + 1)],
-                        profile_results=[RuntimeError("failed") if failed else blocks(full_profile(1)),
-                                         blocks(full_profile(2))],
-                    )
-                    result = await retriever.retrieve("Person", None)
-                    self.assertEqual(result["retrieval_complete"], not failed)
-                    self.assertEqual(result["retrieval_sampled"], hit_count > 2)
+    async def test_invalid_search_results_surface(self):
+        for response in (blocks({}), blocks([{'id': True}]), blocks([{}]),
+                         blocks({'error': 'unavailable'}), [{'type': 'text', 'text': 'not JSON'}]):
+            with self.subTest(response=response), self.assertRaises(ValueError):
+                retriever, search, _ = self.retriever()
+                search.ainvoke.return_value = response
+                await retriever.search('Person', None)
+
+    async def test_retrieval_is_sequential_in_supplied_order_and_capped_at_two(self):
+        retriever, _, lookup = self.retriever()
+        lookup.ainvoke.side_effect = [blocks(profile(3)), blocks(profile(1))]
+        profiles, errors = await retriever.retrieve_profiles([{'id': n} for n in (3, 1, 2)])
+        self.assertEqual(profiles, [profile(3), profile(1)])
+        self.assertEqual(errors, [])
+        self.assertEqual(lookup.ainvoke.await_args_list, [call({'person_id': 3}), call({'person_id': 1})])
+
+    async def test_empty_retrieval_makes_no_tool_calls(self):
+        retriever, _, lookup = self.retriever()
+        self.assertEqual(await retriever.retrieve_profiles([]), ([], []))
+        lookup.ainvoke.assert_not_awaited()
+
+    async def test_failed_lookup_preserves_other_profile(self):
+        for failure in (RuntimeError('network failed'), blocks({'error': 'unknown ID'})):
+            with self.subTest(failure=failure):
+                retriever, _, lookup = self.retriever()
+                lookup.ainvoke.side_effect = [failure, blocks(profile(2))]
+                profiles, errors = await retriever.retrieve_profiles([{'id': 1}, {'id': 2}])
+                self.assertEqual(profiles, [profile(2)])
+                self.assertEqual(errors[0]['person_id'], 1)
+                self.assertEqual(errors[0]['stage'], 'profile')
 
     async def test_profile_contract_failures_preserve_other_profile(self):
-        cases = [("object", []), ("integer ID", {**full_profile(1), "id": True}),
-                 ("requested ID", full_profile(99)),
-                 ("name", {**full_profile(1), "name": None})]
-        for field in ("experience", "education", "skills"):
-            cases.append((field, {**full_profile(1), field: None}))
-        for requirement, invalid_profile in cases:
-            with self.subTest(requirement=requirement):
-                retriever, _, _ = self.retriever(
-                    hits=[{"id": 1}, {"id": 2}],
-                    profile_results=[blocks(invalid_profile), blocks(full_profile(2))],
-                )
-                result = await retriever.retrieve("Person", None)
-                self.assertEqual(result["profiles"], [full_profile(2)])
-                self.assertEqual(result["errors"][0]["stage"], "profile")
-                self.assertEqual(result["errors"][0]["person_id"], 1)
-                self.assertFalse(result["retrieval_complete"])
+        invalid = [[], {**profile(1), 'id': True}, profile(99), {**profile(1), 'name': None}]
+        invalid.extend({**profile(1), field: None} for field in ('experience', 'education', 'skills'))
+        for candidate in invalid:
+            with self.subTest(candidate=candidate):
+                retriever, _, lookup = self.retriever()
+                lookup.ainvoke.side_effect = [blocks(candidate), blocks(profile(2))]
+                profiles, errors = await retriever.retrieve_profiles([{'id': 1}, {'id': 2}])
+                self.assertEqual(profiles, [profile(2)])
+                self.assertEqual(errors[0]['person_id'], 1)
