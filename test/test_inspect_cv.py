@@ -82,6 +82,8 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
                 result = {"findings": [{"claim_id": reference, "status": "UNKNOWN",
                            "evidence_paths": [], "reason": "Unavailable evidence"}
                           for reference in context["claim_catalog"]]}
+            elif system.startswith("Audit"):
+                result = {"corrections": []}
             else:
                 result = {"candidate_id": 3, "reason": "Supporting evidence"}
             return AIMessage(content=json.dumps(result))

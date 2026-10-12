@@ -1,4 +1,5 @@
 from typing import Any
+from copy import deepcopy
 
 from .identity_decision_validator import IdentityDecisionValidator
 
@@ -6,11 +7,13 @@ from .identity_decision_validator import IdentityDecisionValidator
 class CVVerifier:
     """Compose identity, validated comparison and scoring for one CV."""
 
-    def __init__(self, identity_pipeline: Any, comparator: Any, comparison_validator: Any, scorer: Any):
+    def __init__(self, identity_pipeline: Any, comparator: Any, comparison_validator: Any,
+                 scorer: Any, reflector: Any):
         self.identity_pipeline = identity_pipeline
         self.comparator = comparator
         self.comparison_validator = comparison_validator
         self.scorer = scorer
+        self.reflector = reflector
 
     async def ainvoke(self, cv: str) -> dict[str, Any]:
         try:
@@ -20,6 +23,7 @@ class CVVerifier:
                     "errors": [{"stage": "identity", "message": str(error)}]}
         result["findings"] = []
         result["score"] = 0.5
+        result["reflection"] = {"attempted": False, "corrections": []}
         try:
             profile = self._selected_profile(result)
         except Exception as error:
@@ -38,7 +42,28 @@ class CVVerifier:
             result["score"] = self.scorer.score(findings, identity_resolved=True)
         except Exception as error:
             result["errors"].append({"stage": "comparison", "message": str(error)})
+        if result["score"] == 0.9:
+            await self._reflect_positive_result(result, profile)
         return result
+
+    async def _reflect_positive_result(self, result: dict[str, Any], profile: dict[str, Any]) -> None:
+        result["reflection"]["attempted"] = True
+        baseline = result["findings"]
+        try:
+            proposed = await self.reflector.reflect(
+                deepcopy(result["claims"]), deepcopy(profile), deepcopy(baseline),
+            )
+            findings = self.comparison_validator.validate(proposed, result["claims"], profile)
+            score = self.scorer.score(findings, identity_resolved=True)
+            if score not in (0.1, 0.9):
+                raise ValueError("Reflection cannot downgrade a positive result to uncertainty")
+            originals = {finding["claim_id"]: finding for finding in baseline}
+            corrections = [finding for finding in findings if finding != originals[finding["claim_id"]]]
+            result["findings"] = findings
+            result["score"] = score
+            result["reflection"]["corrections"] = corrections
+        except Exception as error:
+            result["errors"].append({"stage": "reflection", "message": str(error)})
 
     def _selected_profile(self, result: dict[str, Any]) -> dict[str, Any] | None:
         if result["identity"] != "resolved":

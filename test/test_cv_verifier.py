@@ -4,6 +4,7 @@ from copy import deepcopy
 from unittest.mock import AsyncMock
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
+from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.cv_verifier import CVVerifier
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.claim_comparator import ClaimComparator
@@ -17,7 +18,7 @@ IDENTITY = {'identity': 'resolved', 'selected_candidate_id': 2, 'identity_reason
 
 
 class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
-    def verifier(self, response, identity=None):
+    def verifier(self, response, identity=None, reflection_response=None):
         pipeline = AsyncMock()
         pipeline.ainvoke.return_value = deepcopy(IDENTITY if identity is None else identity)
         captured = []
@@ -27,7 +28,15 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
                 raise response
             return AIMessage(content=response)
         comparator = ClaimComparator(RunnableLambda(respond))
-        return CVVerifier(pipeline, comparator, ClaimComparisonValidator(), CVScorer()), captured
+        self.reflections = []
+        def audit(prompt):
+            self.reflections.append(json.loads(prompt.to_messages()[1].content))
+            if isinstance(reflection_response, Exception):
+                raise reflection_response
+            output = {'corrections': []} if reflection_response is None else reflection_response
+            return AIMessage(content=output if isinstance(output, str) else json.dumps(output))
+        reflector = ClaimReflector(RunnableLambda(audit))
+        return CVVerifier(pipeline, comparator, ClaimComparisonValidator(), CVScorer(), reflector), captured
 
     async def test_compares_only_validated_selected_profile_not_first_retrieved(self):
         findings = [{'claim_id': 'name', 'cv_claim': CLAIMS['name'], 'status': 'MATCH',
@@ -52,6 +61,7 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['score'], 0.5)
             self.assertEqual(result['identity'], 'unresolved')
             self.assertEqual(captured, [])
+            self.assertEqual(self.reflections, [])
 
     async def test_validated_mismatch_and_unknown_reach_scorer(self):
         for status, expected in (('MISMATCH', 0.1), ('UNKNOWN', 0.5)):
@@ -69,6 +79,7 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
                 result = await verifier.ainvoke('CV')
                 self.assertEqual(result['score'], expected)
                 self.assertEqual(result['findings'], findings)
+                self.assertEqual(self.reflections, [])
 
     async def test_malformed_incomplete_or_failed_comparison_isolated(self):
         for response in ('not JSON', '[]', '[{"status":"MATCH"}]', RuntimeError('failed')):
@@ -77,6 +88,7 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['score'], 0.5)
             self.assertEqual(result['findings'], [])
             self.assertEqual(result['errors'][-1]['stage'], 'comparison')
+            self.assertEqual(self.reflections, [])
 
     async def test_identity_processing_failure_scores_fallback(self):
         verifier, captured = self.verifier('[]')
@@ -85,3 +97,60 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['score'], 0.5)
         self.assertEqual(result['identity'], 'unresolved')
         self.assertEqual(captured, [])
+
+    async def test_positive_reflection_called_once_and_rescored(self):
+        identity = deepcopy(IDENTITY)
+        identity['claims']['jobs'] = [{'raw': '2020', 'company': None, 'title': None,
+            'seniority': None, 'start_year': 2020, 'end_year': None, 'is_current': None, 'dates_raw': None}]
+        identity['profiles'][1]['experience'] = [{'start_year': 2019}]
+        baseline = {'findings': [{'claim_id': 'name', 'status': 'MATCH',
+                    'evidence_paths': ['name'], 'reason': 'Baseline match'},
+                    {'claim_id': 'jobs.0.start_year', 'status': 'MATCH',
+                     'evidence_paths': ['experience.0.start_year'], 'reason': 'Baseline match'}]}
+        corrections = {'corrections': [{'claim_id': 'jobs.0.start_year', 'status': 'MISMATCH',
+                       'evidence_paths': ['experience.0.start_year'], 'reason': 'Explicit year contradiction'}]}
+        verifier, _ = self.verifier(json.dumps(baseline), identity, corrections)
+        result = await verifier.ainvoke('CV')
+        self.assertEqual(len(self.reflections), 1)
+        self.assertEqual(self.reflections[0]['claims'], identity['claims'])
+        self.assertNotIn('ground_truth', self.reflections[0])
+        self.assertEqual(result['score'], 0.1)
+        self.assertTrue(result['reflection']['attempted'])
+        self.assertEqual(len(result['reflection']['corrections']), 1)
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(result['findings'][0], self.reflections[0]['findings'][0])
+
+    async def test_ambiguous_city_correction_preserves_entire_positive_baseline(self):
+        identity = deepcopy(IDENTITY)
+        identity['claims']['city'] = {'value': 'Hong Kong', 'raw': 'Beijing, China | Hong Kong'}
+        identity['profiles'][1]['city'] = 'Beijing'
+        baseline = {'findings': [
+            {'claim_id': ref, 'status': 'MATCH', 'evidence_paths': [ref], 'reason': 'Original wording supports match'}
+            for ref in ('name', 'city')]}
+        corrections = {'corrections': [{'claim_id': 'city', 'status': 'MISMATCH',
+                       'evidence_paths': ['city'], 'reason': 'Different canonical cities'}]}
+        verifier, _ = self.verifier(json.dumps(baseline), identity, corrections)
+        result = await verifier.ainvoke('CV')
+        self.assertEqual(len(self.reflections), 1)
+        self.assertEqual(result['score'], 0.9)
+        self.assertEqual(result['findings'], self.reflections[0]['findings'])
+        self.assertEqual(result['reflection']['corrections'], [])
+        self.assertEqual([e['stage'] for e in result['errors']], ['reflection'])
+        self.assertIn('not eligible', result['errors'][0]['message'])
+
+    async def test_reflection_failure_preserves_baseline_and_diagnostics(self):
+        baseline = {'findings': [{'claim_id': 'name', 'status': 'MATCH',
+                    'evidence_paths': ['name'], 'reason': 'Baseline match'}]}
+        for output in (RuntimeError('LLM failed'), TimeoutError('LLM timed out'), 'not JSON',
+                       {'corrections': [{'claim_id': 'name', 'status': 'UNKNOWN',
+                        'evidence_paths': [], 'reason': 'Uncertain'}]},
+                       {'corrections': [{'claim_id': 'name', 'status': 'MISMATCH',
+                        'evidence_paths': ['headline'], 'reason': 'Excluded'}]}):
+            with self.subTest(output=output):
+                verifier, _ = self.verifier(json.dumps(baseline), reflection_response=output)
+                result = await verifier.ainvoke('CV')
+                self.assertEqual(len(self.reflections), 1)
+                self.assertEqual(result['score'], 0.9)
+                self.assertEqual(result['findings'], self.reflections[0]['findings'])
+                self.assertEqual(result['reflection']['corrections'], [])
+                self.assertEqual([e['stage'] for e in result['errors']], ['reflection'])

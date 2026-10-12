@@ -2,6 +2,7 @@ import asyncio
 import csv
 import io
 import json
+import hashlib
 import os
 import tempfile
 import unittest
@@ -15,6 +16,12 @@ from langchain_core.runnables import RunnableLambda
 
 
 class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
+    def test_provided_runner_unchanged(self):
+        source = Path(hw2.__file__).read_text()
+        runner = source.split('# Everything below is provided runner/scoring code. No edits are needed.', 1)[1]
+        self.assertEqual(hashlib.sha256(runner.encode()).hexdigest(),
+                         '4b8b874090e522ed848750ba8c2292d97701bf4a9a7f8bd9a4cf67a716b43292')
+
     async def test_per_cv_exceptions_and_invalid_scores_do_not_crash_batch(self):
         agent = Mock()
         agent.ainvoke = AsyncMock(side_effect=[{'score': 0.9}, RuntimeError('failed'), {'score': None}, {'score': True}])
@@ -86,9 +93,10 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
         profiles = {1: {'id': 1, 'name': 'Person', 'city': 'London', 'experience': [], 'education': [], 'skills': []},
                     2: {'id': 2, 'name': 'Other', 'city': 'London', 'experience': [], 'education': [], 'skills': []}}
         compared_names = []
+        reflected_names = []
         def respond(prompt, **options):
             expected_options = {'extra_body': {'thinking': {'type': 'disabled'}}}
-            if prompt.to_messages()[0].content.startswith('Compare'):
+            if prompt.to_messages()[0].content.startswith(('Compare', 'Audit')):
                 expected_options['response_format'] = {'type': 'json_object'}
             self.assertEqual(options, expected_options)
             messages = prompt.to_messages()
@@ -98,6 +106,9 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                 output = [2, 1]
             elif messages[0].content.startswith('Identify'):
                 output = {'candidate_id': 1, 'reason': 'Supporting evidence'}
+            elif messages[0].content.startswith('Audit'):
+                reflected_names.append(json.loads(messages[1].content)['profile']['name'])
+                output = {'corrections': []}
             else:
                 context = json.loads(messages[1].content)
                 compared_names.append(context['profile']['name'])
@@ -137,5 +148,6 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(checkpoint_rows[0][1][1], '0.9000')
                 self.assertIn('checkpoint', checkpoint_rows[0][1][2])
                 self.assertEqual(compared_names, ['Person'])
+                self.assertEqual(reflected_names, ['Person'])
             finally:
                 os.chdir(previous)
