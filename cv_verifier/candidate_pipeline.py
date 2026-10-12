@@ -30,9 +30,9 @@ class CandidatePipeline:
         if not search_succeeded:
             return self._build_result(claims=claims, errors=search_errors,
                                       broader_search=bool(self._location_filters(claims)))
-        ranking, ranking_errors = await self._prioritize(claims, hits)
+        ranking, shortlist, ranking_errors = await self._prioritize(claims, hits)
         return await self._investigate(
-            claims, hits, ranking, search_errors + ranking_errors,
+            claims, hits, ranking, shortlist, search_errors + ranking_errors,
             broader_search=bool(self._location_filters(claims)),
         )
 
@@ -70,7 +70,7 @@ class CandidatePipeline:
 
     async def _investigate(
         self, claims: dict[str, Any], hits: list[dict[str, Any]],
-        ranking: list[int], errors: list[dict[str, Any]], broader_search: bool,
+        ranking: list[int], shortlist: list[int], errors: list[dict[str, Any]], broader_search: bool,
     ) -> dict[str, Any]:
         hits = self._new_hits(hits, set())
         ranking = list(dict.fromkeys(ranking))
@@ -81,7 +81,8 @@ class CandidatePipeline:
         stop_reason = "candidates_exhausted"
 
         while len(attempted_hits) < self.MAX_PROFILE_ATTEMPTS:
-            batch = self._next_batch(hits, ranking, attempted_ids)
+            pending_shortlist = [candidate_id for candidate_id in shortlist if candidate_id not in attempted_ids]
+            batch = self._next_batch(hits, pending_shortlist or ranking, attempted_ids)
             if not batch:
                 break
 
@@ -92,6 +93,9 @@ class CandidatePipeline:
             retrieved, retrieval_errors = await self.retriever.retrieve_profiles(batch)
             profiles.extend(retrieved)
             errors.extend(retrieval_errors)
+            if not set(shortlist).issubset(attempted_ids):
+                continue
+
             decision, resolution_errors = await self._resolve_identity(claims, profiles)
             errors.extend(resolution_errors)
             if decision["candidate_id"] is not None:
@@ -101,7 +105,7 @@ class CandidatePipeline:
             stop_reason = "budget_exhausted"
 
         return self._build_result(
-            claims=claims, search_hits=hits, ranking=ranking, profiles=profiles,
+            claims=claims, search_hits=hits, ranking=ranking, shortlist=shortlist, profiles=profiles,
             selected_hits=attempted_hits, errors=errors, decision=decision,
             broader_search=broader_search, stop_reason=stop_reason,
         )
@@ -137,6 +141,7 @@ class CandidatePipeline:
         self, *, claims: dict[str, Any] | None = None,
         search_hits: list[dict[str, Any]] | None = None,
         ranking: list[int] | None = None,
+        shortlist: list[int] | None = None,
         profiles: list[dict[str, Any]] | None = None,
         selected_hits: list[dict[str, Any]] | None = None,
         errors: list[dict[str, Any]] | None = None,
@@ -151,6 +156,9 @@ class CandidatePipeline:
             "claims": claims,
             "search_hits": hits,
             "ranked_candidate_ids": ranking if ranking is not None else [],
+            "shortlisted_candidate_ids": shortlist if shortlist is not None else [],
+            "shortlist_covered": shortlist is not None and selected_hits is not None
+                and set(shortlist).issubset({hit["id"] for hit in selected_hits}),
             "profiles": retrieved,
             "identity": "resolved" if identity["candidate_id"] is not None else "unresolved",
             "selected_candidate_id": identity["candidate_id"],
@@ -163,14 +171,14 @@ class CandidatePipeline:
             "errors": errors if errors is not None else [],
         }
 
-    async def _prioritize(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> tuple[list[int], list]:
+    async def _prioritize(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> tuple[list[int], list[int], list]:
         if not hits:
-            return [], []
+            return [], [], []
         try:
             proposed = await self.prioritizer.prioritize(claims, hits)
             shortlist = self.ranking_validator.validate(proposed, hits)
             selected_ids = set(shortlist)
             remaining_ids = [hit["id"] for hit in hits if hit["id"] not in selected_ids]
-            return shortlist + remaining_ids, []
+            return shortlist + remaining_ids, shortlist, []
         except Exception as error:
-            return [hit["id"] for hit in hits], [{"stage": "prioritization", "message": str(error)}]
+            return [hit["id"] for hit in hits], [], [{"stage": "prioritization", "message": str(error)}]

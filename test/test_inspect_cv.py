@@ -113,5 +113,5 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
         summary = stderr.getvalue()
         self.assertIn("LinkedIn search: 2.000s / 2 calls", summary)
         self.assertIn("LLM invocations: 4", summary)
-        self.assertIn("MCP tool calls: 4", summary)
-        self.assertIn("Profile lookup attempts: 2; identity-resolution attempts: 1", summary)
+        self.assertIn("MCP tool calls: 5", summary)
+        self.assertIn("Profile lookup attempts: 3; identity-resolution attempts: 1", summary)

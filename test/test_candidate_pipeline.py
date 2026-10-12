@@ -38,7 +38,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_components_retrieve_in_ranked_order(self):
         extractor = ClaimExtractor(RunnableLambda(lambda _: AIMessage(content=json.dumps(CLAIMS))))
-        prioritizer = CandidatePrioritizer(RunnableLambda(lambda _: AIMessage(content='[3, 1, 2]')))
+        prioritizer = CandidatePrioritizer(RunnableLambda(lambda _: AIMessage(content='[3, 1]')))
         search, lookup = AsyncMock(), AsyncMock()
         search.name, lookup.name = 'search_linkedin_people', 'get_linkedin_profile'
         hits = [{'id': n} for n in (1, 2, 3)]
