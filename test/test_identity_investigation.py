@@ -1,6 +1,10 @@
 import unittest
+import json
 from copy import deepcopy
 from unittest.mock import AsyncMock, call
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
+from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.candidate_pipeline import CandidatePipeline
 from cv_verifier.claim_validator import ClaimValidator
 from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
@@ -60,7 +64,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(retriever.search.await_args_list,
                          [call('Person', 'Beijing'), call('Person', 'Hong Kong'), call('Person', None)])
         self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
-        self.assertEqual(retriever.retrieve_profiles.await_count, 4)
+        self.assertEqual(retriever.retrieve_profiles.await_count, 5)
         self.assertEqual(result['search_hits'][-1], {'id': 21})
         self.assertEqual(result['errors'][0]['stage'], 'search')
 
@@ -85,6 +89,8 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_progressive_resolution_uses_all_successful_profiles(self):
         pipeline, retriever, resolver = self.pipeline(
             [1, 2, 3, 4, 5], decisions=[UNRESOLVED, {'candidate_id': 3, 'reason': 'Wider history supports 3.'}])
+        pipeline.prioritizer.prioritize.return_value = [1, 2]
+        pipeline.prioritizer.prioritize.side_effect = None
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['selected_candidate_id'], 3)
         self.assertEqual(result['identity'], 'resolved')
@@ -98,23 +104,23 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_two_searches_combine_and_deduplicate_before_investigation(self):
         pipeline, retriever, resolver = self.pipeline(
             [1, 2], broad=[1, 2, 3, 3, 4], failed=[1],
-            decisions=[UNRESOLVED, {'candidate_id': 4, 'reason': 'Employment and education identify 4.'}])
+            decisions=[{'candidate_id': 4, 'reason': 'Employment and education identify 4.'}])
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3, 4])
         self.assertEqual(result['ranked_candidate_ids'], [1, 2, 3, 4])
         self.assertEqual(retriever.search.await_args_list, [call('Person', 'London'), call('Person', None)])
         self.assertEqual([[p['id'] for p in c.args[1]] for c in resolver.resolve.await_args_list],
-                         [[2], [2, 3, 4]])
+                         [[2, 3, 4]])
         self.assertEqual(result['selected_candidate_id'], 4)
         self.assertFalse(result['retrieval_complete'])
         self.assertTrue(result['broader_search_performed'])
         self.assertEqual(result['errors'][0]['person_id'], 1)
 
-    async def test_budget_counts_failed_attempts_and_never_exceeds_four_batches(self):
+    async def test_budget_counts_failed_attempts_and_keeps_batches_bounded(self):
         pipeline, retriever, resolver = self.pipeline(range(1, 21), failed=range(1, 21))
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
-        self.assertEqual(retriever.retrieve_profiles.await_count, 4)
+        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 1, 2, 1])
         self.assertEqual(retriever.search.await_count, 2)
         resolver.resolve.assert_not_awaited()
         self.assertIsNone(result['selected_candidate_id'])
@@ -124,7 +130,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_successful_budget_limit_remains_ambiguous(self):
         pipeline, retriever, resolver = self.pipeline(range(1, 21))
         result = await pipeline.ainvoke('CV')
-        self.assertEqual(resolver.resolve.await_count, 4)
+        self.assertEqual(resolver.resolve.await_count, 3)
         self.assertEqual(len(result['profiles']), 8)
         self.assertEqual(result['identity'], 'unresolved')
         self.assertTrue(result['retrieval_sampled'])
@@ -134,8 +140,8 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         pipeline, retriever, resolver = self.pipeline([1, 2, 3, 4, 5], broad=range(1, 21))
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
-        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 2, 2])
-        self.assertEqual(resolver.resolve.await_count, 4)
+        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 1, 2, 1])
+        self.assertEqual(resolver.resolve.await_count, 3)
         self.assertEqual(result['investigation_stop_reason'], 'budget_exhausted')
 
     async def test_invalid_decision_or_resolver_error_cannot_resolve_identity(self):
@@ -181,9 +187,105 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
     async def test_resolves_to_earlier_profile_after_more_evidence(self):
         pipeline, _, _ = self.pipeline([1, 2, 3], decisions=[
             UNRESOLVED, {'candidate_id': 1, 'reason': 'Additional alternatives make candidate 1 strongest.'}])
+        pipeline.prioritizer.prioritize.side_effect = None
+        pipeline.prioritizer.prioritize.return_value = [1, 2]
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['selected_candidate_id'], 1)
         self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3])
+
+    async def test_fifth_shortlisted_identity_prevents_early_weak_selection(self):
+        pipeline, retriever, _ = self.pipeline(range(1, 11))
+        calls = []
+        def respond(prompt):
+            context = json.loads(prompt.to_messages()[1].content)
+            ids = [p['id'] for p in context['profiles']]
+            calls.append(ids)
+            self.assertEqual([h['id'] for c in retriever.retrieve_profiles.await_args_list
+                              for h in c.args[0]], [1, 2, 3, 4, 5])
+            candidate_id = 5 if 5 in ids else 4
+            return AIMessage(content=json.dumps({
+                'candidate_id': candidate_id, 'reason': 'Distinctive employment and education support 5.'}))
+        pipeline.identity_resolver = IdentityResolver(RunnableLambda(respond))
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(calls, [[1, 2, 3, 4, 5]])
+        self.assertEqual(result['selected_candidate_id'], 5)
+        self.assertEqual(result['shortlisted_candidate_ids'], [1, 2, 3, 4, 5])
+        self.assertTrue(result['shortlist_covered'])
+        self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3, 4, 5])
+        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 1])
+
+    async def test_short_shortlists_resolve_after_exact_coverage(self):
+        for length in range(1, 5):
+            with self.subTest(length=length):
+                pipeline, _, resolver = self.pipeline(range(1, 11), decisions=[
+                    {'candidate_id': length, 'reason': 'Wider identifying evidence supports this profile.'}])
+                pipeline.prioritizer.prioritize.side_effect = None
+                pipeline.prioritizer.prioritize.return_value = list(range(1, length + 1))
+                result = await pipeline.ainvoke('CV')
+                self.assertEqual(result['attempted_candidate_ids'], list(range(1, length + 1)))
+                self.assertTrue(result['shortlist_covered'])
+                resolver.resolve.assert_awaited_once()
+
+    async def test_failed_shortlist_lookups_count_as_coverage_and_preserve_errors(self):
+        pipeline, _, resolver = self.pipeline(range(1, 11), failed=[2, 5], decisions=[
+            {'candidate_id': 3, 'reason': 'Successfully retrieved history supports 3.'}])
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3, 4, 5])
+        self.assertEqual([p['id'] for p in resolver.resolve.await_args.args[1]], [1, 3, 4])
+        self.assertEqual([e['person_id'] for e in result['errors']], [2, 5])
+        self.assertTrue(result['shortlist_covered'])
+        self.assertFalse(result['retrieval_complete'])
+
+    async def test_ambiguous_shortlist_continues_with_all_profiles_until_budget(self):
+        pipeline, _, _ = self.pipeline(range(1, 11))
+        examined = []
+        def respond(prompt):
+            context = json.loads(prompt.to_messages()[1].content)
+            examined.append([p['id'] for p in context['profiles']])
+            return AIMessage(content=json.dumps(UNRESOLVED))
+        pipeline.identity_resolver = IdentityResolver(RunnableLambda(respond))
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(examined, [list(range(1, 6)), list(range(1, 8)), list(range(1, 9))])
+        self.assertEqual(result['identity'], 'unresolved')
+        self.assertEqual(result['investigation_stop_reason'], 'budget_exhausted')
+        self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
+
+    async def test_prioritization_failure_preserves_original_order_resolution(self):
+        pipeline, _, resolver = self.pipeline(range(1, 11), decisions=[
+            {'candidate_id': 2, 'reason': 'Identifying evidence supports 2.'}])
+        pipeline.prioritizer.prioritize.side_effect = RuntimeError('Prioritization failed')
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(result['ranked_candidate_ids'], list(range(1, 11)))
+        self.assertEqual(result['shortlisted_candidate_ids'], [])
+        self.assertEqual(result['attempted_candidate_ids'], [1, 2])
+        self.assertEqual(result['selected_candidate_id'], 2)
+        self.assertEqual(result['errors'][0]['stage'], 'prioritization')
+        resolver.resolve.assert_awaited_once()
+
+    async def test_isolated_false_claim_does_not_block_identity_after_coverage(self):
+        pipeline, retriever, _ = self.pipeline(range(1, 6))
+        claims = pipeline.extractor.extract.return_value
+        claims['jobs'] = [{'raw': 'Analyst at Netflix 2016-present', 'company': 'Netflix',
+                          'title': 'Analyst', 'seniority': None, 'dates_raw': '2016-present',
+                          'start_year': 2016, 'end_year': None, 'is_current': True}]
+        async def retrieve(hits):
+            profiles = [profile(h['id']) for h in hits]
+            for p in profiles:
+                if p['id'] == 5:
+                    p['experience'] = [{'company': 'Meta', 'title': 'Analyst', 'start_year': 2016}]
+            return profiles, []
+        retriever.retrieve_profiles.side_effect = retrieve
+        def respond(prompt):
+            context = json.loads(prompt.to_messages()[1].content)
+            self.assertEqual(context['claims'], claims)
+            self.assertEqual(len(context['profiles']), 5)
+            self.assertEqual(context['profiles'][-1]['experience'][0]['company'], 'Meta')
+            return AIMessage(content=json.dumps({'candidate_id': 5,
+                'reason': 'Other identifying evidence supports identity despite the false employer.'}))
+        pipeline.identity_resolver = IdentityResolver(RunnableLambda(respond))
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(result['selected_candidate_id'], 5)
+        self.assertEqual(result['claims'], claims)
 
     async def test_duplicate_filtered_hits_do_not_repeat_lookups(self):
         pipeline, retriever, _ = self.pipeline([1, 1, 2])
