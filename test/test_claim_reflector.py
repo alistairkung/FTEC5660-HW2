@@ -40,6 +40,73 @@ def correction(reference, paths, reason='Explicit contradiction'):
 
 
 class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unclaimed_seniority_and_valid_title_equivalences_cannot_be_corrected(self):
+        for claimed_title, profile_title, level in (
+            ('Manager', 'Manager', 'junior'), ('Analyst', 'Analyst', 'senior'),
+            ('Senior Manager', 'Manager', 'senior'), ('Sr. Manager', 'Mgr.', 'senior'),
+            ('Manager', 'Mgr.', 'junior'), ('Analyst', 'Senior Analyst', 'senior'),
+            ('Engineer', 'Engineer', 'mid'), ('Senior Scientist', 'Scientist', 'senior'),
+        ):
+            claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+            claims['jobs'][0]['title'] = claimed_title
+            profile['experience'][1].update(title=profile_title, seniority=level)
+            for paths in (['experience.1.seniority'], ['experience.1.title', 'experience.1.seniority'], ['experience']):
+                with self.subTest(claim=claimed_title, profile=profile_title, paths=paths), self.assertRaises(ValueError):
+                    await self.reflect({'corrections': [correction('jobs.0.title', paths)]}, claims, profile)
+            result, original = await self.reflect({'corrections': []}, claims, profile)
+            self.assertEqual(result, original)
+
+    async def test_actual_role_title_difference_can_be_corrected_with_aligned_evidence(self):
+        claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+        claims['jobs'][0]['title'] = 'Engineer'
+        profile['experience'][1].update(title='Scientist', seniority='junior')
+        result, original = await self.reflect({'corrections': [correction('jobs.0.title', ['experience.1.title'])]},
+                                               claims, profile)
+        self.assertEqual([f['claim_id'] for f, old in zip(result, original) if f != old], ['jobs.0.title'])
+        self.assertEqual(next(f for f in result if f['claim_id'] == 'jobs.0.title')['status'], 'MISMATCH')
+
+    async def test_unrelated_employment_records_cannot_supply_contradictions(self):
+        claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+        claims['jobs'][0]['title'] = 'Manager'
+        for reference, paths in (
+            ('jobs.0.title', ['experience.0.title']),
+            ('jobs.0.title', ['experience.1.title', 'experience.0.seniority']),
+            ('jobs.0.start_year', ['experience.0.start_year']),
+            ('jobs.0.is_current', ['experience.0.is_current']),
+        ):
+            with self.subTest(reference=reference, paths=paths), self.assertRaisesRegex(ValueError, 'unrelated'):
+                await self.reflect({'corrections': [correction(reference, paths)]}, claims, profile)
+
+    async def test_missing_or_ambiguous_baseline_alignment_preserves_original_findings(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][1]['start_year'] = 2019
+        for ambiguity in ('missing', 'multiple'):
+            findings = baseline(CLAIMS, profile)
+            for finding in findings:
+                if finding['claim_id'].startswith('jobs.0.') and ambiguity == 'missing':
+                    finding['evidence'] = [{'path': 'experience', 'value': profile['experience']}]
+                elif finding['claim_id'] == 'jobs.0.title' and ambiguity == 'multiple':
+                    finding['evidence'] = [{'path': 'experience.0.title', 'value': profile['experience'][0]['title']}]
+            with self.subTest(ambiguity=ambiguity), self.assertRaisesRegex(ValueError, 'baseline-aligned'):
+                await self.reflect({'corrections': [correction('jobs.0.start_year', ['experience.1.start_year'])]},
+                                   profile=profile, findings=findings)
+
+    async def test_seniority_correction_requires_explicit_profile_level_not_a_role_guess(self):
+        claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+        claims['jobs'][0]['seniority'] = 'senior'
+        profile['experience'][1]['title'] = 'Manager'
+        profile['experience'][1]['seniority'] = None
+        findings = baseline()
+        for finding in findings:
+            if finding['claim_id'] == 'jobs.0.title':
+                finding['evidence'] = [{'path': 'experience.1.title', 'value': 'Manager'}]
+        findings.append({'claim_id': 'jobs.0.seniority', 'cv_claim': {'value': 'senior', 'raw': claims['jobs'][0]['raw']},
+                         'status': 'MATCH', 'evidence': [{'path': 'experience.1.title', 'value': 'Manager'}],
+                         'reason': 'Baseline inference'})
+        with self.assertRaises(ValueError):
+            await self.reflect({'corrections': [correction('jobs.0.seniority', ['experience.1.title'])]},
+                               claims, profile, findings)
+
     async def reflect(self, output, claims=CLAIMS, profile=PROFILE, findings=None):
         original = baseline(claims, profile) if findings is None else findings
         saved = deepcopy((claims, profile, original))
@@ -130,6 +197,7 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_explicit_seniority_contradiction_remains_eligible(self):
         claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+        claims['jobs'][0]['title'] = 'Manager'
         claims['jobs'][0]['seniority'] = 'senior'
         profile['experience'][1]['seniority'] = 'junior'
         result, original = await self.reflect({'corrections': [correction('jobs.0.seniority',
@@ -137,7 +205,9 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([f['claim_id'] for f, old in zip(result, original) if f != old], ['jobs.0.seniority'])
 
     async def test_malformed_output_and_references_rejected(self):
-        valid = correction('jobs.0.title', ['experience.1.title'])
+        profile = deepcopy(PROFILE)
+        profile['experience'][1]['start_year'] = 2019
+        valid = correction('jobs.0.start_year', ['experience.1.start_year'])
         outputs = ['not JSON', '```json\n{}\n```', [], {}, {'corrections': None},
                    {'corrections': [], 'score': 0.1}, {'corrections': [None]},
                    {'corrections': [valid, valid]},
@@ -153,7 +223,7 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
             outputs.append({'corrections': [dict(valid, **{key: value})]})
         for output in outputs:
             with self.subTest(output=output), self.assertRaises(ValueError):
-                await self.reflect(output)
+                await self.reflect(output, profile=profile)
 
     async def test_invalid_null_duplicate_excluded_or_irrelevant_paths_rejected(self):
         for paths in ([], ['headline'], ['hometown'], ['experience.0.description'],
@@ -173,8 +243,10 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
             await self.reflect({'corrections': [correction('jobs.0.title', ['experience.1.title'])]}, findings=findings)
 
     async def test_invalid_correction_rejects_entire_batch_without_mutating_baseline(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][1]['start_year'] = 2019
         with self.assertRaises(ValueError):
             await self.reflect({'corrections': [
-                correction('jobs.0.title', ['experience.1.title']),
+                correction('jobs.0.start_year', ['experience.1.start_year']),
                 correction('name', ['headline']),
-            ]})
+            ]}, profile=profile)

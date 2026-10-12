@@ -13,19 +13,33 @@ and all other ineligible claims unchanged. Do not propose corrections to them.
 Do not judge identity or produce a score. Return only corrections supported by concrete
 contradictory evidence. Uncertainty or missing evidence alone is not a correction.
 
-Match employment and education records semantically, never by array position. Check
+Respect baseline semantic employment alignment; match education records semantically,
+never by array position. Check
 whether each cited value actually supports the finding and explanation. In particular,
 a senior title contradicts an explicitly junior role even when the base title agrees.
+Seniority is claimed ONLY by an explicit seniority field or an explicit title qualifier
+such as Senior/Sr., Junior/Jr. or Mid. Never infer senior, junior or mid from an
+unqualified title such as Manager or Analyst. Manager versus Manager/junior and
+Analyst versus Analyst/senior are valid matches: extra profile seniority information
+does not contradict an unqualified CV title. Senior Analyst versus Analyst/junior
+does contradict the explicitly claimed senior qualifier. An explicit CV seniority
+field may also contradict a supplied profile seniority field.
 Senior Manager is equivalent to Manager with seniority senior; Senior Scientist is
 equivalent to Scientist with seniority senior. MBA is equivalent to Master of Business
 Administration. Differences in wording alone do not establish contradictions.
 Preserve legitimate title/seniority combinations and degree aliases.
+Recognize ordinary title abbreviations such as Mgr./Manager. A title correction needs
+a genuine role-title discrepancy or evidence contradicting explicitly claimed seniority;
+different strings or an extra seniority label alone do not establish a discrepancy.
 Compare explicit employment and graduation years exactly. Graduation year corresponds
 to education.end_year. Do not infer unsupported dates or seniority from missing values.
 
 Correct only the affected claim, leaving unrelated fields unchanged. Cite relevant
-contradictory fields from the semantically corresponding record. An available,
-authoritative complete experience or education collection may establish
+contradictory fields from the employment record already aligned by the baseline's
+citations for that CV job. Do not realign employment records or borrow evidence from
+another job. If baseline citations do not identify one record unambiguously, leave
+the finding unchanged. Cite indexed employment fields; the whole experience collection
+cannot substitute for an aligned record. An available, authoritative complete education collection may establish
 absence after semantic alignment; unavailable or incomplete evidence cannot.
 Ignore headlines, hometowns and job descriptions. Never invent or copy evidence values.
 
