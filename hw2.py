@@ -95,15 +95,12 @@ def build_agent(tools: list[Any]) -> Any:
     ### YOUR CODE HERE
     from langchain_deepseek import ChatDeepSeek
 
-    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=2)
-    ranking_llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0)
+    inference_options = {"thinking": {"type": "disabled"}}
+    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=2).bind(extra_body=inference_options)
+    ranking_llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(extra_body=inference_options)
     return CandidatePipeline(
-        ClaimExtractor(llm.bind(
-            extra_body={"thinking": {"type": "disabled"}},
-        )), ClaimValidator(), ProfileRetriever(tools),
-        CandidatePrioritizer(ranking_llm.bind(
-            extra_body={"thinking": {"type": "disabled"}},
-        )), CandidateRankingValidator(),
+        ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools),
+        CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
 
