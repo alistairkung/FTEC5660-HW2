@@ -113,7 +113,9 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ineligible_claim_corrections_rejected_even_with_different_valid_evidence(self):
         claims = deepcopy(CLAIMS)
-        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': 'Hong Kong'}
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': None,
+                          'candidates': [{'city': 'Beijing', 'role': 'unspecified'},
+                                         {'city': 'Hong Kong', 'role': 'unspecified'}]}
         profile = deepcopy(PROFILE)
         profile.update(name='Different Name', city='Beijing', skills=[{'name': 'Rust'}])
         profile['experience'][1]['company'] = 'Other Employer'

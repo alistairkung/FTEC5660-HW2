@@ -11,7 +11,8 @@ from hw2 import build_claim_comparator
 
 CLAIMS = {
     'name': {'raw': 'Example Person', 'value': 'Example Person'},
-    'city': {'raw': 'London', 'value': 'London'},
+    'city': {'raw': 'London', 'value': 'London',
+                   'candidates': [{'city': 'London', 'role': 'current'}]},
     'jobs': [
         {'raw': 'Senior Manager, Company A, 2020–Present', 'company': 'Company A',
          'title': 'Senior Manager', 'seniority': None, 'dates_raw': '2020–Present',
@@ -38,6 +39,48 @@ PROFILE = {
 
 
 class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_location_semantics_at_model_boundary(self):
+        header = {'raw': 'Beijing, China | Hong Kong', 'value': None, 'candidates': [
+            {'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        explicit = {'raw': 'Current city Beijing; hometown Hong Kong', 'value': 'Beijing', 'candidates': [
+            {'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'hometown'}]}
+        cases = [
+            (header, 'Beijing', 'MATCH', 'Profile city is in the unlabelled personal location header'),
+            (header, 'Hong Kong', 'MATCH', 'Both unspecified candidates remain possible'),
+            (header, 'Jakarta', 'MISMATCH', 'Complete personal location header contains only other cities'),
+            (explicit, 'Beijing', 'MATCH', 'Explicit current city agrees'),
+            (explicit, 'Hong Kong', 'MISMATCH', 'Hometown is not an alternative current city'),
+            ({'raw': 'Meetings in Beijing and Hong Kong', 'value': None, 'candidates': []},
+             'Jakarta', 'UNKNOWN', 'Incidental mentions do not establish residence'),
+            ({'raw': 'Considering Beijing or Hong Kong among other locations', 'value': None,
+              'candidates': header['candidates']}, 'Jakarta', 'UNKNOWN', 'Not an exhaustive residence claim'),
+            ({'raw': 'Lives in Jakarta', 'value': 'Jakarta',
+              'candidates': [{'city': 'Jakarta', 'role': 'current'}]},
+             'Beijing', 'MISMATCH', 'Explicit current city contradicts profile city'),
+            ({'raw': 'NYC / New York, USA | HK / Hong Kong', 'value': None,
+              'candidates': [{'city': 'New York', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]},
+             'New York, USA', 'MATCH', 'Legitimate city alias and country qualification'),
+            ({'raw': 'Hometown Hong Kong; previously Beijing', 'value': None,
+              'candidates': [{'city': 'Hong Kong', 'role': 'hometown'}, {'city': 'Beijing', 'role': 'previous'}]},
+             'Hong Kong', 'UNKNOWN', 'Neither candidate asserts current residence'),
+            ({'raw': 'Location unclear', 'value': None, 'candidates': []},
+             'Beijing', 'UNKNOWN', 'No parsed residence candidates'),
+            (explicit, None, 'UNKNOWN', 'Profile city is unavailable'),
+        ]
+        for location, city, status, reason in cases:
+            claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+            claims['city'], profile['city'] = deepcopy(location), city
+            with self.subTest(location=location, profile_city=city):
+                findings = await self.comparison(claims, profile, {'city': {
+                    'status': status, 'evidence': [] if status == 'UNKNOWN' else [{'path': 'city', 'value': city}],
+                    'reason': reason}})
+                finding = next(f for f in findings if f['claim_id'] == 'city')
+                self.assertEqual(finding['status'], status)
+                self.assertEqual(finding['cv_claim'], {'value': {
+                    'value': location['value'], 'candidates': location['candidates']}, 'raw': location['raw']})
+        self.assertIn('complete set of plausible claimed personal locations', COMPARISON_PROMPT)
+        self.assertIn('Never use hometown or previous candidates as alternative current cities', COMPARISON_PROMPT)
+
     async def comparison(self, claims, profile, chosen):
         contract = ClaimComparisonValidator()
         findings = [{'claim_id': reference, 'cv_claim': claim, 'status': 'UNKNOWN',

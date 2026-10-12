@@ -2,7 +2,7 @@ import unittest
 from copy import deepcopy
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 
-CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None},
+CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None, 'candidates': []},
           'jobs': [], 'education': [], 'skills': [{'name': 'Python', 'raw': 'Python'}]}
 PROFILE = {'name': 'Person', 'skills': [{'name': 'Python'}], 'headline': 'Excluded'}
 FINDINGS = [
@@ -18,9 +18,66 @@ DECISIONS = {'findings': [
 
 
 class ClaimComparisonValidatorTests(unittest.TestCase):
+    def test_city_catalog_preserves_ambiguity_roles_and_complete_coverage(self):
+        claims = deepcopy(CLAIMS)
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': None, 'candidates': [
+            {'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        profile = dict(PROFILE, city='Beijing')
+        output = deepcopy(DECISIONS)
+        output['findings'].append({'claim_id': 'city', 'status': 'MATCH',
+                                  'evidence_paths': ['city'], 'reason': 'Header contains profile city'})
+        validator = ClaimComparisonValidator()
+        catalog = validator.claim_catalog(claims)
+        self.assertIsNone(catalog['city']['value']['value'])
+        self.assertEqual(catalog['city']['value']['candidates'], claims['city']['candidates'])
+        self.assertEqual(catalog['city']['raw'], claims['city']['raw'])
+        findings = validator.reconstruct(output, claims, profile)
+        city = next(f for f in findings if f['claim_id'] == 'city')
+        self.assertEqual(city['cv_claim'], catalog['city'])
+        self.assertEqual(city['evidence'], [{'path': 'city', 'value': 'Beijing'}])
+        with self.assertRaisesRegex(ValueError, 'Missing comparison claims'):
+            validator.reconstruct(DECISIONS, claims, profile)
+        corrupted = deepcopy(findings)
+        corrupted[-1]['cv_claim']['value'] = 'Hong Kong'
+        with self.assertRaisesRegex(ValueError, 'does not preserve'):
+            validator.validate(corrupted, claims, profile)
+        city['cv_claim']['value']['candidates'][0]['city'] = 'changed'
+        self.assertEqual(claims['city']['candidates'][0]['city'], 'Beijing')
+
+    def test_missing_city_is_not_invented_from_education(self):
+        claims = deepcopy(CLAIMS)
+        claims['education'] = [{'raw': 'The University of Hong Kong', 'school': 'The University of Hong Kong',
+                               'degree': None, 'field': None, 'graduation_year': None, 'dates_raw': None}]
+        self.assertNotIn('city', ClaimComparisonValidator().claim_catalog(claims))
+
+    def test_incidental_or_only_non_current_locations_cannot_support_match_or_mismatch(self):
+        for candidates in ([], [{'city': 'London', 'role': 'hometown'}], [{'city': 'London', 'role': 'previous'}]):
+            for status in ('MATCH', 'MISMATCH', 'UNKNOWN'):
+                claims = deepcopy(CLAIMS)
+                claims['city'] = {'raw': 'London mentioned', 'value': None, 'candidates': candidates}
+                output = deepcopy(DECISIONS)
+                output['findings'].append({'claim_id': 'city', 'status': status,
+                    'evidence_paths': [] if status == 'UNKNOWN' else ['city'], 'reason': 'Location decision'})
+                with self.subTest(candidates=candidates, status=status):
+                    if status == 'UNKNOWN':
+                        self.assertEqual(ClaimComparisonValidator().reconstruct(output, claims, dict(PROFILE, city='London'))[-1]['status'], status)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'must be UNKNOWN'):
+                            ClaimComparisonValidator().reconstruct(output, claims, dict(PROFILE, city='London'))
+
+    def test_city_decision_cannot_borrow_other_permitted_evidence_fields(self):
+        claims = deepcopy(CLAIMS)
+        claims['city'] = {'raw': 'London', 'value': 'London', 'candidates': [{'city': 'London', 'role': 'current'}]}
+        output = deepcopy(DECISIONS)
+        output['findings'].append({'claim_id': 'city', 'status': 'MATCH', 'evidence_paths': ['name'], 'reason': 'Unsupported'})
+        with self.assertRaisesRegex(ValueError, 'only the profile city'):
+            ClaimComparisonValidator().reconstruct(output, claims, dict(PROFILE, city='London'))
+
     def test_reflection_rejects_city_name_and_skills_at_validator_boundary(self):
         claims = deepcopy(CLAIMS)
-        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': 'Hong Kong'}
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': None,
+                          'candidates': [{'city': 'Beijing', 'role': 'unspecified'},
+                                         {'city': 'Hong Kong', 'role': 'unspecified'}]}
         profile = dict(PROFILE, name='Different Name', city='Beijing', skills=[{'name': 'Rust'}])
         validator = ClaimComparisonValidator()
         baseline = validator.reconstruct({'findings': [

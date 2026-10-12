@@ -10,7 +10,7 @@ from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.claim_comparator import ClaimComparator
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 
-CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None},
+CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None, 'candidates': []},
           'jobs': [], 'education': [], 'skills': []}
 IDENTITY = {'identity': 'resolved', 'selected_candidate_id': 2, 'identity_reason': 'Supported identity',
             'claims': CLAIMS, 'profiles': [{'id': 1, 'name': 'Wrong Person'}, {'id': 2, 'name': 'Person'}],
@@ -122,7 +122,9 @@ class CVVerifierTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ambiguous_city_correction_preserves_entire_positive_baseline(self):
         identity = deepcopy(IDENTITY)
-        identity['claims']['city'] = {'value': 'Hong Kong', 'raw': 'Beijing, China | Hong Kong'}
+        identity['claims']['city'] = {'value': None, 'raw': 'Beijing, China | Hong Kong',
+            'candidates': [{'city': 'Beijing', 'role': 'unspecified'},
+                           {'city': 'Hong Kong', 'role': 'unspecified'}]}
         identity['profiles'][1]['city'] = 'Beijing'
         baseline = {'findings': [
             {'claim_id': ref, 'status': 'MATCH', 'evidence_paths': [ref], 'reason': 'Original wording supports match'}

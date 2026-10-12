@@ -69,7 +69,8 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
         from hw2 import build_agent
 
         claims = {"name": {"raw": "Person", "value": "Person"},
-                  "city": {"raw": "London", "value": "London"},
+                  "city": {"raw": "London", "value": "London",
+                           "candidates": [{"city": "London", "role": "current"}]},
                   "jobs": [], "education": [], "skills": []}
         def model_response(prompt, **_options):
             system = prompt.to_messages()[0].content

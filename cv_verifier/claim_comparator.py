@@ -12,6 +12,20 @@ Compare only name, city, employment company/title/seniority/start_year/end_year/
 is_current, education school/degree/field/graduation year, and skills. Ignore job
 descriptions, headlines and hometowns; these are never discrepancy evidence.
 
+For city, use original raw wording AND structured candidates/roles together.
+The catalog's city value is an object containing the extracted value and candidates;
+a null current-city value must stay ambiguous, never replace it with the raw string.
+An explicit current city matching profile.city is MATCH; a contradictory explicit
+current city is MISMATCH. Preserve city aliases (e.g. NYC/New York) and country-qualified
+wording. Never use hometown or previous candidates as alternative current cities.
+For an unlabelled multi-city personal location header, a profile city matching any
+unspecified candidate is MATCH. If none match, use MISMATCH ONLY when the original
+header reasonably states the complete set of plausible claimed personal locations.
+Otherwise use UNKNOWN. Incidental city mentions, university/employer locations,
+unparsed wording, or only hometown/previous locations do not establish a current-city
+claim: use UNKNOWN. Missing/null profile.city is UNKNOWN. Cite only profile.city
+for city MATCH/MISMATCH; do not borrow headlines, hometowns or other profile fields.
+
 First match corresponding employment and education records semantically using
 the wider context, not their array positions or exact wording. Then evaluate each
 individual field. A field discrepancy must not prevent aligning its corresponding

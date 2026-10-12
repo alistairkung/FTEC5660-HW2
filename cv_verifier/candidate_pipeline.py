@@ -29,18 +29,17 @@ class CandidatePipeline:
         hits, search_errors, search_succeeded = await self._search_candidates(claims)
         if not search_succeeded:
             return self._build_result(claims=claims, errors=search_errors,
-                                      broader_search=bool(claims["city"]["value"]))
+                                      broader_search=bool(self._location_filters(claims)))
         ranking, ranking_errors = await self._prioritize(claims, hits)
         return await self._investigate(
             claims, hits, ranking, search_errors + ranking_errors,
-            broader_search=bool(claims["city"]["value"]),
+            broader_search=bool(self._location_filters(claims)),
         )
 
     async def _search_candidates(
         self, claims: dict[str, Any],
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
-        city = claims["city"]["value"]
-        filters = [city, None] if city else [None]
+        filters = self._location_filters(claims) + [None]
         combined = []
         known_ids = set()
         errors = []
@@ -54,6 +53,20 @@ class CandidatePipeline:
                 errors.append({"stage": "search", "scope": "city_filtered" if location else "name_only",
                                "message": str(error)})
         return combined, errors, succeeded
+
+    def _location_filters(self, claims: dict[str, Any]) -> list[str]:
+        """Use current/unspecified cities as discovery hints; always search the name too."""
+        locations = []
+        seen = set()
+        for candidate in claims["city"]["candidates"]:
+            if candidate["role"] not in ("current", "unspecified"):
+                continue
+            city = candidate["city"]
+            key = city.strip().casefold()
+            if key not in seen:
+                locations.append(city)
+                seen.add(key)
+        return locations
 
     async def _investigate(
         self, claims: dict[str, Any], hits: list[dict[str, Any]],
