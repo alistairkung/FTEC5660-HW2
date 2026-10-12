@@ -27,7 +27,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
                       for h in hits if h['id'] in failed]
             return profiles, errors
         retriever.retrieve_profiles.side_effect = retrieve
-        prioritizer.prioritize.side_effect = lambda claims, hits: [h['id'] for h in hits]
+        prioritizer.prioritize.side_effect = lambda claims, hits: [h['id'] for h in hits[:5]]
         resolver.resolve.side_effect = decisions
         resolver.resolve.return_value = UNRESOLVED
         pipeline = CandidatePipeline(extractor, ClaimValidator(), retriever, prioritizer,

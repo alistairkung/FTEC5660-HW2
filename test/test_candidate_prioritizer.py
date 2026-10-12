@@ -13,11 +13,13 @@ class CandidatePrioritizerTests(unittest.IsolatedAsyncioTestCase):
         captured = []
         def respond(prompt):
             captured.extend(prompt.to_messages())
-            return AIMessage(content='[2, 1]')
+            return AIMessage(content='[2]')
         result = await CandidatePrioritizer(RunnableLambda(respond)).prioritize(claims, hits)
-        self.assertEqual(result, [2, 1])
+        self.assertEqual(result, [2])
         self.assertEqual(json.loads(captured[1].content), {'claims': claims, 'search_hits': hits})
         self.assertIn('untrusted clues', captured[0].content)
+        self.assertIn('up to five', captured[0].content)
+        self.assertIn('you do not need to rank every candidate', captured[0].content)
 
     async def test_empty_candidates_skip_model(self):
         def fail(_):
