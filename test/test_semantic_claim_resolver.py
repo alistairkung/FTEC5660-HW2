@@ -57,7 +57,8 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
             'status': 'MATCH', 'evidence_paths': ['education.0.degree'], 'reason': 'MBA is equivalent'}}, profile=profile)
         self.assertEqual(len(calls), 1)
         context = json.loads(calls[0].to_messages()[1].content)
-        self.assertEqual(set(context), {'requested_claim_ids', 'claim_catalog', 'profile_evidence', 'record_context'})
+        self.assertEqual(set(context), {'requested_claim_ids', 'claim_catalog', 'profile_evidence', 'record_context',
+                                        'evidence_path_contracts'})
         self.assertEqual(context['requested_claim_ids'], ['education.0.degree'])
         self.assertEqual(context['claim_catalog'], {'education.0.degree':
             ClaimComparisonValidator().claim_catalog(CLAIMS)['education.0.degree']})
@@ -76,6 +77,9 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
         finding = result['education.0.degree']
         self.assertEqual(finding['cv_claim'], context['claim_catalog']['education.0.degree'])
         self.assertEqual(finding['evidence'], [{'path': 'education.0.degree', 'value': 'MBA'}])
+        self.assertEqual(context['evidence_path_contracts'], {'education.0.degree': {
+            'allowed_match_evidence_paths': ['education.0.degree'],
+            'allowed_mismatch_evidence_paths': ['education.0.degree', 'education']}})
         self.assertEqual(calls[0].to_messages()[0].content, SEMANTIC_PROMPT)
 
     async def test_degree_skill_employer_school_field_and_title_aliases(self):
@@ -102,21 +106,28 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     claims['skills'][0][field] = claim
                     profile['skills'][0][field] = actual
-                result, _ = await self.resolve({reference: {
+                result, calls = await self.resolve({reference: {
                     'status': 'MATCH', 'evidence_paths': [path], 'reason': 'Supported semantic equivalence'}}, claims, profile)
                 self.assertEqual(result[reference]['status'], 'MATCH')
                 self.assertEqual(result[reference]['evidence'], [{'path': path, 'value': actual}])
+                guidance = json.loads(calls[0].to_messages()[1].content)['evidence_path_contracts'][reference]
+                self.assertIn(path, guidance['allowed_match_evidence_paths'])
+                self.assertNotIn('education', guidance['allowed_match_evidence_paths'])
+                self.assertNotIn('experience', guidance['allowed_match_evidence_paths'])
         for wording in ('UI/UX', 'PowerPoint', 'BSc', 'employer/school aliases', 'unqualified title'):
             self.assertIn(wording, SEMANTIC_PROMPT)
 
     async def test_docker_absent_after_semantic_review_cites_complete_collection(self):
         claims = deepcopy(CLAIMS)
         claims['skills'][0]['name'] = 'Docker'
-        result, _ = await self.resolve({'skills.0.name': {
+        result, calls = await self.resolve({'skills.0.name': {
             'status': 'MISMATCH', 'evidence_paths': ['skills'],
             'reason': 'Complete supplied skills list has Python and SQL, neither equivalent to Docker'}}, claims)
         self.assertEqual(result['skills.0.name']['status'], 'MISMATCH')
         self.assertEqual(result['skills.0.name']['evidence'][0]['value'], PROFILE['skills'])
+        guidance = json.loads(calls[0].to_messages()[1].content)['evidence_path_contracts']['skills.0.name']
+        self.assertNotIn('skills', guidance['allowed_match_evidence_paths'])
+        self.assertIn('skills', guidance['allowed_mismatch_evidence_paths'])
 
     async def test_city_semantics_and_hometown_exclusion(self):
         claims = deepcopy(CLAIMS)
@@ -205,6 +216,41 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context['profile_evidence']['experience'], PROFILE['experience'])
         self.assertIn('experience.1.title', context['profile_evidence'])
         self.assertNotIn('experience.0.title', context['profile_evidence'])
+        self.assertEqual(context['evidence_path_contracts']['jobs.0.company'], {
+            'allowed_match_evidence_paths': ['experience.1.company'],
+            'allowed_mismatch_evidence_paths': ['experience.1.company', 'experience']})
+
+    async def test_title_equivalence_guidance_preserves_multi_field_indexed_evidence(self):
+        claims = deepcopy(CLAIMS)
+        claims['jobs'][0]['title'] = 'Senior Mgr'
+        result, calls = await self.resolve({'jobs.0.title': {
+            'status': 'MATCH', 'evidence_paths': ['experience.1.title', 'experience.1.seniority'],
+            'reason': 'Manager with senior seniority matches Senior Mgr'}}, claims)
+        guidance = json.loads(calls[0].to_messages()[1].content)['evidence_path_contracts']['jobs.0.title']
+        self.assertEqual(guidance['allowed_match_evidence_paths'], ['experience.1.title', 'experience.1.seniority'])
+        self.assertEqual(guidance['allowed_mismatch_evidence_paths'], ['experience.1.title', 'experience.1.seniority', 'experience'])
+        self.assertEqual([e['path'] for e in result['jobs.0.title']['evidence']], guidance['allowed_match_evidence_paths'])
+
+    async def test_guidance_excludes_null_values_and_other_aligned_record_paths(self):
+        profile = deepcopy(PROFILE)
+        profile['education'][0]['degree'] = None
+        profile['education'].append(dict(PROFILE['education'][0], degree='MBA'))
+        _, calls = await self.resolve({}, profile=profile)
+        guidance = json.loads(calls[0].to_messages()[1].content)['evidence_path_contracts']['education.0.degree']
+        self.assertEqual(guidance['allowed_match_evidence_paths'], [])
+        self.assertEqual(guidance['allowed_mismatch_evidence_paths'], ['education'])
+
+    async def test_guidance_maps_years_and_unparsed_dates_without_inventing_evidence(self):
+        claims = deepcopy(CLAIMS)
+        claims['jobs'][0]['start_year'] = None
+        claims['jobs'][0]['dates_raw'] = 'about 2020 to present'
+        profile = deepcopy(PROFILE)
+        profile['education'][0]['end_year'] = None
+        _, calls = await self.resolve({}, claims, profile)
+        contracts = json.loads(calls[0].to_messages()[1].content)['evidence_path_contracts']
+        self.assertEqual(contracts['education.0.graduation_year']['allowed_match_evidence_paths'], [])
+        self.assertEqual(contracts['jobs.0.dates']['allowed_match_evidence_paths'],
+                         ['experience.1.start_year', 'experience.1.is_current'])
 
     async def test_employment_aliases_cannot_borrow_another_aligned_record(self):
         claims = deepcopy(CLAIMS)

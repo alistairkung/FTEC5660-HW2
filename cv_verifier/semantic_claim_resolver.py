@@ -12,6 +12,16 @@ and NO other IDs, even when surrounding record fields provide context. claim_cat
 contains only those canonical claims and their original wording. profile_evidence
 maps permitted paths to actual values. record_context contains relevant CV/profile
 records and validated alignment reasons; these are context, not additional tasks.
+evidence_path_contracts gives allowed_match_evidence_paths and
+allowed_mismatch_evidence_paths for EACH requested claim. Select evidence_paths
+from that claim's list for the chosen status, not just from profile_evidence.
+For an aligned MATCH, cite its indexed corresponding fields, NEVER the whole
+collection. Include multiple permitted fields when equivalence needs them,
+such as title plus seniority. Indexed MISMATCH paths support direct contradictions;
+whole-collection paths support only a genuine absence/discrepancy established by
+a sufficiently complete supplied history. UNKNOWN may cite relevant permitted
+paths or use no evidence when it is unavailable. Context fields are not automatically
+eligible citations. Never invent paths or borrow another aligned record's fields.
 Never classify or score the CV. Valid indexes alone do not prove semantic alignment.
 Never silently realign a record: for a non-null alignment, cite that corresponding
 profile record or its whole collection for supported absence, never another record.
@@ -115,7 +125,43 @@ class SemanticClaimResolver:
                 evidence[reference] = filtered[reference]
         return {"requested_claim_ids": requested,
                 "claim_catalog": {reference: catalog[reference] for reference in requested},
-                "profile_evidence": evidence, "record_context": records}
+                "profile_evidence": evidence, "record_context": records,
+                "evidence_path_contracts": {reference: self._evidence_path_contract(reference, evidence, alignments)
+                                            for reference in requested}}
+
+    def _evidence_path_contract(self, reference, evidence, alignments):
+        parts = reference.split(".")
+        absence = []
+        if parts[0] in ("jobs", "education"):
+            collection, index, field = parts
+            source = "experience" if collection == "jobs" else "education"
+            alignment = next(entry for entry in alignments[collection] if entry["cv_index"] == int(index))
+            entries = evidence.get(source)
+            indexes = ([alignment["profile_index"]] if alignment["profile_index"] is not None
+                       else range(len(entries)) if isinstance(entries, list) else [])
+            if field in ("title", "seniority"):
+                fields = ("title", "seniority")
+            elif field == "graduation_year":
+                fields = ("end_year",)
+            elif field == "dates":
+                fields = ("start_year", "end_year", "is_current") if collection == "jobs" else ("end_year",)
+            elif field == "record":
+                fields = ClaimComparisonValidator.JOB_FIELDS if collection == "jobs" else ("school", "degree", "field", "end_year")
+            else:
+                fields = (field,)
+            candidates = [f"{source}.{record_index}.{field}" for record_index in indexes for field in fields]
+            if isinstance(entries, list):
+                absence = [source]
+        elif parts[0] == "skills":
+            candidates = [path for path in evidence if path.startswith("skills.") and path.endswith(".name")]
+            # Empty skills alone do not establish exhaustiveness in the default shadow run.
+            if isinstance(evidence.get("skills"), list) and evidence["skills"]:
+                absence = ["skills"]
+        else:
+            candidates = [reference]
+        matches = [path for path in candidates if path in evidence and evidence[path] is not None]
+        return {"allowed_match_evidence_paths": matches,
+                "allowed_mismatch_evidence_paths": matches + absence}
 
     def merge(self, output: Any, claims: dict[str, Any], profile: dict[str, Any],
               alignments: dict[str, Any], findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
