@@ -19,6 +19,24 @@ def result(score=0.9, identity='resolved', findings=None, errors=None):
 
 
 class InspectBatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_comparison_and_reflection_timing_includes_failed_reflection(self):
+        agent = Mock()
+        agent.comparator.compare = AsyncMock(return_value=['baseline'])
+        agent.reflector.reflect = AsyncMock(side_effect=RuntimeError('failed audit'))
+        capture = {}
+        token = inspect_batch._COMPARISON_CAPTURE.set(capture)
+        try:
+            inspect_batch._capture_comparisons(agent)
+            with patch.object(inspect_batch.time, 'perf_counter', side_effect=[10, 12, 20, 23]):
+                self.assertEqual(await agent.comparator.compare(), ['baseline'])
+                with self.assertRaises(RuntimeError):
+                    await agent.reflector.reflect()
+        finally:
+            inspect_batch._COMPARISON_CAPTURE.reset(token)
+        self.assertEqual(capture, {'output': ['baseline'], 'timings': {
+            'comparison': {'seconds': 2.0, 'calls': 1},
+            'reflection': {'seconds': 3.0, 'calls': 1}}})
+
     async def test_seven_cvs_limit_concurrency_preserve_results_and_save_each_completion(self):
         paths = [Path(f'CV_{n}.pdf') for n in range(1, 8)]
         active, peak = 0, 0

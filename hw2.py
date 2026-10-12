@@ -77,6 +77,7 @@ from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 from cv_verifier.claim_comparator import ClaimComparator
+from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
@@ -144,7 +145,8 @@ def build_agent(tools: list[Any]) -> Any:
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
     comparison_llm = ranking_llm.bind(response_format={"type": "json_object"})
-    return CVVerifier(identity_pipeline, ClaimComparator(comparison_llm), ClaimComparisonValidator(), CVScorer())
+    return CVVerifier(identity_pipeline, ClaimComparator(comparison_llm), ClaimComparisonValidator(),
+                      CVScorer(), ClaimReflector(comparison_llm))
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:

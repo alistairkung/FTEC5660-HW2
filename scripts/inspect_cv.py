@@ -51,6 +51,7 @@ def _instrument_agent(agent, timings, counters):
         (identity.retriever, "retrieve_profiles", "Profile retrieval"),
         (identity.identity_resolver, "resolve", "Identity resolution"),
         (agent.comparator, "compare", "Claim comparison"),
+        (agent.reflector, "reflect", "Reflection"),
     ):
         setattr(component, method_name, _timed_async(
             getattr(component, method_name), timings, stage, counters,
@@ -58,7 +59,8 @@ def _instrument_agent(agent, timings, counters):
         ))
     # Each chain invokes one LLM. Count at this boundary so empty-input shortcuts
     # do not count as model calls. SDK transport retries are outside this count.
-    for component in (identity.extractor, identity.prioritizer, identity.identity_resolver, agent.comparator):
+    for component in (identity.extractor, identity.prioritizer, identity.identity_resolver,
+                      agent.comparator, agent.reflector):
         component._chain = _CountedInvocation(component._chain, counters, "llm_calls")
 
 
@@ -76,7 +78,7 @@ def _print_performance(timings, counters, total):
 async def inspect_cv(path: Path) -> None:
     timings = {stage: {"seconds": 0.0, "calls": 0} for stage in (
         "PDF load", "CV extraction", "LinkedIn search", "Prioritization",
-        "Profile retrieval", "Identity resolution", "Claim comparison",
+        "Profile retrieval", "Identity resolution", "Claim comparison", "Reflection",
     )}
     counters = dict.fromkeys(("llm_calls", "mcp_calls", "profile_lookup_attempts",
                               "identity_resolution_attempts"), 0)

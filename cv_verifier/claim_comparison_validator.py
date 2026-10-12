@@ -45,6 +45,62 @@ class ClaimComparisonValidator:
             ] if isinstance(entries, list) else entries
         return selected
 
+    def apply_corrections(self, output: Any, baseline: list[dict[str, Any]],
+                          claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Apply sparse, grounded MATCH-to-MISMATCH corrections atomically."""
+        self.validate(baseline, claims, profile)
+        if not isinstance(output, dict) or set(output) != {"corrections"}:
+            raise ValueError("Reflection output requires exactly a corrections envelope")
+        if not isinstance(output["corrections"], list):
+            raise ValueError("Reflection corrections must be a list")
+        catalog = self.claim_catalog(claims)
+        evidence = self._evidence_catalog(self.comparison_profile(profile))
+        originals = {finding["claim_id"]: finding for finding in baseline}
+        replacements = {}
+        for decision in output["corrections"]:
+            finding = self._reconstruct_finding(decision, catalog, evidence)
+            reference = finding["claim_id"]
+            if reference in replacements:
+                raise ValueError("Duplicate reflection claim reference")
+            if originals[reference]["status"] != "MATCH":
+                raise ValueError("Reflection may correct only existing MATCH findings")
+            if finding["status"] != "MISMATCH":
+                raise ValueError("Reflection requires a concrete MISMATCH, not uncertainty")
+            if not self._has_relevant_contradiction(finding):
+                raise ValueError("Reflection requires relevant contradictory evidence")
+            replacements[reference] = finding
+        merged = [deepcopy(replacements.get(finding["claim_id"], finding)) for finding in baseline]
+        return self.validate(merged, claims, profile)
+
+    def _has_relevant_contradiction(self, finding: dict[str, Any]) -> bool:
+        """Check evidence relevance and reject unchanged scalar values; meaning stays with the LLM."""
+        reference = finding["claim_id"]
+        parts = reference.split(".")
+        if len(parts) == 1:
+            collection, fields = None, (reference,)
+        else:
+            collection = {"jobs": "experience", "education": "education", "skills": "skills"}[parts[0]]
+            field = parts[-1]
+            if field == "title":
+                fields = ("title", "seniority")
+            elif field == "graduation_year":
+                fields = ("end_year",)
+            elif field in ("dates", "record"):
+                fields = self.JOB_FIELDS if parts[0] == "jobs" else ("school", "degree", "field", "end_year")
+            else:
+                fields = (field,)
+        for citation in finding["evidence"]:
+            path = citation["path"]
+            if collection is not None and path == collection and isinstance(citation["value"], list):
+                return True
+            path_parts = path.split(".")
+            relevant = path == reference if collection is None else (
+                len(path_parts) == 3 and path_parts[0] == collection and path_parts[-1] in fields
+            )
+            if relevant and citation["value"] != finding["cv_claim"]["value"]:
+                return True
+        return False
+
     def reconstruct(self, output: Any, claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Resolve model decisions against canonical inputs, then validate findings."""
         if not isinstance(output, dict) or set(output) != {"findings"}:

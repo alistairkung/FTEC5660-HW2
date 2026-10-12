@@ -21,17 +21,25 @@ _COMPARISON_CAPTURE = ContextVar("batch_comparison_capture", default=None)
 
 
 def _capture_comparisons(agent):
-    """Retain returned findings even when production validation rejects them."""
-    compare = agent.comparator.compare
+    """Retain comparison output and time comparison/reflection without changing them."""
+    def measured(method, stage):
+        async def invoke(*args, **kwargs):
+            start = time.perf_counter()
+            capture = _COMPARISON_CAPTURE.get()
+            try:
+                output = await method(*args, **kwargs)
+                if capture is not None and stage == "comparison":
+                    capture["output"] = output
+                return output
+            finally:
+                if capture is not None:
+                    timing = capture.setdefault("timings", {}).setdefault(stage, {"seconds": 0.0, "calls": 0})
+                    timing["seconds"] += time.perf_counter() - start
+                    timing["calls"] += 1
+        return invoke
 
-    async def observed_compare(*args, **kwargs):
-        proposed = await compare(*args, **kwargs)
-        capture = _COMPARISON_CAPTURE.get()
-        if capture is not None:
-            capture["output"] = proposed
-        return proposed
-
-    agent.comparator.compare = observed_compare
+    agent.comparator.compare = measured(agent.comparator.compare, "comparison")
+    agent.reflector.reflect = measured(agent.reflector.reflect, "reflection")
 
 
 def _fallback_details(result, score, failure):
@@ -88,9 +96,12 @@ def _print_record(record):
     findings = "/".join(f"{status}={counts[status]}" for status in ("MATCH", "MISMATCH", "UNKNOWN"))
     fallback = record["fallback"]
     origin = fallback["stage"] if fallback["occurred"] else "none"
+    corrections = len(result.get("reflection", {}).get("corrections", []))
+    reflection_errors = sum(error.get("stage") == "reflection" for error in result.get("errors", []))
     print(f"{record['filename']}: score={record['score']:.1f}; {record['correctness']}; "
           f"identity={result.get('identity', 'undetermined')}/{result.get('selected_candidate_id')}; "
-          f"{findings}; {record['elapsed_seconds']:.2f}s; fallback={origin}", flush=True)
+          f"{findings}; {record['elapsed_seconds']:.2f}s; fallback={origin}; "
+          f"reflection corrections={corrections}/errors={reflection_errors}", flush=True)
 
 
 async def inspect_batch(folder: Path, output: Path | None = None):
@@ -144,6 +155,7 @@ async def inspect_batch(folder: Path, output: Path | None = None):
                 "expected": truth.get(path.name), "failure": failure,
                 "fallback": _fallback_details(result, score, failure), "result": result,
                 "comparison_output_before_validation": comparison_capture.get("output"),
+                "stage_timings": comparison_capture.get("timings", {}),
             }
             records[path.name] = record
             payload["records"] = [records[p.name] for p in paths if p.name in records]
