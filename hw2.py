@@ -74,6 +74,8 @@ from cv_verifier.claim_validator import ClaimValidator
 from cv_verifier.candidate_pipeline import CandidatePipeline
 from cv_verifier.candidate_prioritizer import CandidatePrioritizer
 from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
+from cv_verifier.identity_resolver import IdentityResolver
+from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 
 
 def build_agent(tools: list[Any]) -> Any:
@@ -98,6 +100,7 @@ def build_agent(tools: list[Any]) -> Any:
     return CandidatePipeline(
         ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools),
         CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
+        IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
 
 
