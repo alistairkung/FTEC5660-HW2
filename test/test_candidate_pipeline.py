@@ -27,6 +27,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         extractor.extract.return_value = CLAIMS
         retriever = AsyncMock()
         retriever.MAX_PROFILES = 2
+        retriever.MAX_SEARCH_RESULTS = 20
         retriever.search.return_value = [{'id': n} for n in (1, 2, 3)] if hits is None else hits
         retriever.retrieve_profiles.return_value = ([], [{'stage': 'profile', 'message': 'failed'}])
         prioritizer = AsyncMock()

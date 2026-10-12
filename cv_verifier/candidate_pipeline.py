@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 
@@ -26,33 +27,111 @@ class CandidatePipeline:
         except Exception as error:
             return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
 
-        hits, search_errors, search_succeeded = await self._search_candidates(claims)
+        hits, search_errors, search_succeeded, searches = await self._search_candidates(claims)
         if not search_succeeded:
             return self._build_result(claims=claims, errors=search_errors,
+                                      discovery_searches=searches,
                                       broader_search=bool(self._location_filters(claims)))
         ranking, shortlist, ranking_errors = await self._prioritize(claims, hits)
         return await self._investigate(
             claims, hits, ranking, shortlist, search_errors + ranking_errors,
+            discovery_searches=searches,
             broader_search=bool(self._location_filters(claims)),
         )
 
     async def _search_candidates(
         self, claims: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool, list[dict[str, Any]]]:
         filters = self._location_filters(claims) + [None]
         combined = []
         known_ids = set()
         errors = []
+        searches = []
         succeeded = False
         for location in filters:
-            try:
-                hits = await self.retriever.search(claims["name"]["value"], location)
-                combined.extend(self._new_hits(hits, known_ids))
+            scope = "city_filtered" if location else "name_only"
+            hits, error, search = await self._search_once(claims["name"]["value"], location, scope)
+            new_hits = self._new_hits(hits, known_ids)
+            combined.extend(new_hits)
+            search["new_candidate_count"] = len(new_hits)
+            searches.append(search)
+            if error is not None:
+                errors.append(error)
+            else:
                 succeeded = True
-            except Exception as error:
-                errors.append({"stage": "search", "scope": "city_filtered" if location else "name_only",
-                               "message": str(error)})
-        return combined, errors, succeeded
+
+        supplementary = self._supplementary_query(claims, combined, searches)
+        if supplementary is not None:
+            location, industry = supplementary
+            hits, error, search = await self._search_once(
+                claims["name"]["value"], location, "industry_filtered", industry,
+            )
+            new_hits = self._new_hits(hits, known_ids)
+            combined.extend(new_hits)
+            search["new_candidate_count"] = len(new_hits)
+            searches.append(search)
+            if error is not None:
+                errors.append(error)
+        return combined, errors, succeeded, searches
+
+    async def _search_once(
+        self, name: str, location: str | None, scope: str, industry: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+        search = {"scope": scope, "location": location, "industry": industry, "returned_count": None}
+        try:
+            if industry is None:
+                hits = await self.retriever.search(name, location)
+            else:
+                hits = await self.retriever.search(name, location, industry=industry)
+            search["returned_count"] = len(hits)
+            return hits, None, search
+        except Exception as error:
+            return [], {"stage": "search", "scope": scope, "message": str(error)}, search
+
+    def _supplementary_query(
+        self, claims: dict[str, Any], hits: list[dict[str, Any]], searches: list[dict[str, Any]],
+    ) -> tuple[str | None, str] | None:
+        saturated = [search for search in searches
+                     if search["returned_count"] is not None
+                     and search["returned_count"] >= self.retriever.MAX_SEARCH_RESULTS]
+        if not saturated:
+            return None
+        industry = self._industry_hint(claims, hits)
+        if industry is None:
+            return None
+        locations = [search["location"] for search in saturated if search["location"] is not None]
+        # An uncapped city pool is already exhausted; diversify the capped name pool instead.
+        location = locations[0] if locations else None
+        return location, industry
+
+    def _industry_hint(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> str | None:
+        """Use observed labels with explicit CV support; hints never exclude original hits."""
+        categories = [
+            [job[field] for job in claims["jobs"] for field in ("company", "title")],
+            [education[field] for education in claims["education"] for field in ("school", "degree", "field")],
+            [skill["name"] for skill in claims["skills"]],
+        ]
+        wording = [[self._words(value) for value in category if isinstance(value, str)]
+                   for category in categories]
+        best_hint = None
+        best_support = 0
+        seen = set()
+        for hit in hits:
+            industry = hit.get("industry")
+            if not isinstance(industry, str):
+                continue
+            label = self._words(industry)
+            if not label.strip() or label in seen:
+                continue
+            seen.add(label)
+            support = sum(any(label in value for value in category) for category in wording)
+            if support > best_support:
+                best_hint, best_support = industry.strip(), support
+        return best_hint
+
+    def _words(self, value: str) -> str:
+        """Bound normalized phrases with spaces to avoid substring matches such as AI/AIA."""
+        return " " + " ".join(re.findall(r"\w+", value.casefold())) + " "
 
     def _location_filters(self, claims: dict[str, Any]) -> list[str]:
         """Use current/unspecified cities as discovery hints; always search the name too."""
@@ -71,6 +150,7 @@ class CandidatePipeline:
     async def _investigate(
         self, claims: dict[str, Any], hits: list[dict[str, Any]],
         ranking: list[int], shortlist: list[int], errors: list[dict[str, Any]], broader_search: bool,
+        discovery_searches: list[dict[str, Any]],
     ) -> dict[str, Any]:
         hits = self._new_hits(hits, set())
         ranking = list(dict.fromkeys(ranking))
@@ -108,6 +188,7 @@ class CandidatePipeline:
             claims=claims, search_hits=hits, ranking=ranking, shortlist=shortlist, profiles=profiles,
             selected_hits=attempted_hits, errors=errors, decision=decision,
             broader_search=broader_search, stop_reason=stop_reason,
+            discovery_searches=discovery_searches,
         )
 
     def _next_batch(self, hits: list[dict[str, Any]], ranking: list[int],
@@ -142,6 +223,7 @@ class CandidatePipeline:
         search_hits: list[dict[str, Any]] | None = None,
         ranking: list[int] | None = None,
         shortlist: list[int] | None = None,
+        discovery_searches: list[dict[str, Any]] | None = None,
         profiles: list[dict[str, Any]] | None = None,
         selected_hits: list[dict[str, Any]] | None = None,
         errors: list[dict[str, Any]] | None = None,
@@ -155,6 +237,7 @@ class CandidatePipeline:
         return {
             "claims": claims,
             "search_hits": hits,
+            "discovery_searches": discovery_searches if discovery_searches is not None else [],
             "ranked_candidate_ids": ranking if ranking is not None else [],
             "shortlisted_candidate_ids": shortlist if shortlist is not None else [],
             "shortlist_covered": shortlist is not None and selected_hits is not None
