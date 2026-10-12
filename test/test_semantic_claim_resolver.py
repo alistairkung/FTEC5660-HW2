@@ -1,0 +1,220 @@
+import json
+import unittest
+from copy import deepcopy
+
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableLambda
+
+from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
+from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
+from cv_verifier.semantic_claim_resolver import SemanticClaimResolver, SEMANTIC_PROMPT
+from test_claim_comparator import CLAIMS, PROFILE
+from test_record_aligner import ALIGNMENTS
+
+
+class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
+    def model(self, output):
+        calls = []
+        def respond(prompt):
+            calls.append(prompt)
+            if isinstance(output, Exception):
+                raise output
+            return AIMessage(content=output if isinstance(output, str) else json.dumps(output))
+        return SemanticClaimResolver(RunnableLambda(respond)), calls
+
+    def decisions(self, findings, changes=None):
+        changes = changes or {}
+        return {'findings': [dict(claim_id=f['claim_id'], status='UNKNOWN', evidence_paths=[],
+                                  reason='Evidence remains insufficient') | changes.get(f['claim_id'], {})
+                            for f in findings if f['status'] == 'UNKNOWN']}
+
+    async def resolve(self, changes, claims=None, profile=None, alignments=None, findings=None):
+        claims, profile = deepcopy(CLAIMS if claims is None else claims), deepcopy(PROFILE if profile is None else profile)
+        alignments = deepcopy(ALIGNMENTS if alignments is None else alignments)
+        findings = DeterministicClaimVerifier().verify(claims, profile, alignments) if findings is None else findings
+        original = deepcopy((claims, profile, alignments, findings))
+        resolver, calls = self.model(self.decisions(findings, changes))
+        result = await resolver.resolve(claims, profile, alignments, findings)
+        self.assertEqual((claims, profile, alignments, findings), original)
+        ClaimComparisonValidator().validate(result, claims, profile)
+        for before, after in zip(findings, result):
+            if before['status'] != 'UNKNOWN':
+                self.assertEqual(before, after)
+        return {f['claim_id']: f for f in result}, calls
+
+    async def test_no_unknown_skips_model_entirely(self):
+        claims = deepcopy(CLAIMS)
+        claims['education'][0]['degree'] = 'MBA'
+        findings = DeterministicClaimVerifier().verify(claims, PROFILE, ALIGNMENTS)
+        resolver, calls = self.model(RuntimeError('No call permitted'))
+        self.assertEqual(await resolver.resolve(claims, PROFILE, ALIGNMENTS, findings), findings)
+        self.assertEqual(calls, [])
+
+    async def test_only_unknown_findings_with_full_canonical_context_and_no_excluded_fields(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][0]['description'] = 'Excluded job text'
+        result, calls = await self.resolve({'education.0.degree': {
+            'status': 'MATCH', 'evidence_paths': ['education.0.degree'], 'reason': 'MBA is equivalent'}}, profile=profile)
+        self.assertEqual(len(calls), 1)
+        context = json.loads(calls[0].to_messages()[1].content)
+        self.assertEqual(set(context), {'claims', 'claim_catalog', 'profile', 'alignments', 'unknown_findings'})
+        self.assertEqual([f['claim_id'] for f in context['unknown_findings']], ['education.0.degree'])
+        self.assertEqual(context['claims'], CLAIMS)
+        self.assertEqual(context['claim_catalog'], ClaimComparisonValidator().claim_catalog(CLAIMS))
+        self.assertEqual(context['alignments'], ALIGNMENTS)
+        self.assertNotIn('headline', context['profile'])
+        self.assertNotIn('hometown', context['profile'])
+        self.assertNotIn('description', context['profile']['experience'][0])
+        finding = result['education.0.degree']
+        self.assertEqual(finding['cv_claim'], context['claim_catalog']['education.0.degree'])
+        self.assertEqual(finding['evidence'], [{'path': 'education.0.degree', 'value': 'MBA'}])
+        self.assertEqual(calls[0].to_messages()[0].content, SEMANTIC_PROMPT)
+
+    async def test_degree_skill_employer_school_field_and_title_aliases(self):
+        cases = [
+            ('education.0.degree', 'degree', 'Master of Business Administration', 'MBA', 'education.0.degree'),
+            ('education.0.degree', 'degree', 'Bachelor of Science', 'BSc', 'education.0.degree'),
+            ('skills.0.name', 'name', 'UI/UX Design', 'UI/UX', 'skills.0.name'),
+            ('skills.0.name', 'name', 'Microsoft PowerPoint', 'PowerPoint', 'skills.0.name'),
+            ('skills.0.name', 'name', 'JavaScript', 'JS', 'skills.0.name'),
+            ('jobs.0.company', 'company', 'International Business Machines', 'IBM', 'experience.1.company'),
+            ('jobs.0.title', 'title', 'Senior Mgr', 'Manager', 'experience.1.title'),
+            ('education.0.school', 'school', 'Massachusetts Institute of Technology', 'MIT', 'education.0.school'),
+            ('education.0.field', 'field', 'Computer Science', 'Computing', 'education.0.field'),
+        ]
+        for reference, field, claim, actual, path in cases:
+            with self.subTest(reference=reference, claim=claim):
+                claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+                if reference.startswith('jobs.'):
+                    claims['jobs'][0][field] = claim
+                    profile['experience'][1][field] = actual
+                elif reference.startswith('education.'):
+                    claims['education'][0][field] = claim
+                    profile['education'][0][field] = actual
+                else:
+                    claims['skills'][0][field] = claim
+                    profile['skills'][0][field] = actual
+                result, _ = await self.resolve({reference: {
+                    'status': 'MATCH', 'evidence_paths': [path], 'reason': 'Supported semantic equivalence'}}, claims, profile)
+                self.assertEqual(result[reference]['status'], 'MATCH')
+                self.assertEqual(result[reference]['evidence'], [{'path': path, 'value': actual}])
+        for wording in ('UI/UX', 'PowerPoint', 'BSc', 'employer/school aliases', 'unqualified title'):
+            self.assertIn(wording, SEMANTIC_PROMPT)
+
+    async def test_docker_absent_after_semantic_review_cites_complete_collection(self):
+        claims = deepcopy(CLAIMS)
+        claims['skills'][0]['name'] = 'Docker'
+        result, _ = await self.resolve({'skills.0.name': {
+            'status': 'MISMATCH', 'evidence_paths': ['skills'],
+            'reason': 'Complete supplied skills list has Python and SQL, neither equivalent to Docker'}}, claims)
+        self.assertEqual(result['skills.0.name']['status'], 'MISMATCH')
+        self.assertEqual(result['skills.0.name']['evidence'][0]['value'], PROFILE['skills'])
+
+    async def test_city_semantics_and_hometown_exclusion(self):
+        claims = deepcopy(CLAIMS)
+        claims['city'] = {'raw': 'NYC | Hong Kong', 'value': None, 'candidates': [
+            {'city': 'NYC', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        profile = dict(deepcopy(PROFILE), city='New York')
+        result, _ = await self.resolve({'city': {
+            'status': 'MATCH', 'evidence_paths': ['city'], 'reason': 'NYC is New York'}}, claims, profile)
+        self.assertEqual(result['city']['status'], 'MATCH')
+        claims['city'] = {'raw': 'Hometown Hong Kong', 'value': None,
+                          'candidates': [{'city': 'Hong Kong', 'role': 'hometown'}]}
+        result, _ = await self.resolve({}, claims, profile)
+        self.assertEqual(result['city']['status'], 'UNKNOWN')
+        with self.assertRaises(ValueError):
+            await self.resolve({'city': {'status': 'MATCH', 'evidence_paths': ['city'], 'reason': 'Hometown match'}}, claims, profile)
+
+    async def test_objective_year_contradiction_cannot_be_overridden(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][1]['start_year'] = 2019
+        result, _ = await self.resolve({}, profile=profile)
+        self.assertEqual(result['jobs.0.start_year']['status'], 'MISMATCH')
+        findings = DeterministicClaimVerifier().verify(CLAIMS, profile, ALIGNMENTS)
+        output = self.decisions(findings)
+        output['findings'].append({'claim_id': 'jobs.0.start_year', 'status': 'MATCH',
+                                   'evidence_paths': ['experience.1.start_year'], 'reason': 'Override contradiction'})
+        resolver, _ = self.model(output)
+        with self.assertRaises(ValueError):
+            await resolver.resolve(CLAIMS, profile, ALIGNMENTS, findings)
+
+    async def test_null_alignment_can_remain_unknown_or_use_defensible_collection_absence(self):
+        alignments = deepcopy(ALIGNMENTS)
+        alignments['jobs'][0]['profile_index'] = None
+        alignments['jobs'][0]['reason'] = 'Ambiguous record correspondence'
+        result, calls = await self.resolve({}, alignments=alignments)
+        self.assertTrue(all(f['status'] == 'UNKNOWN' for ref, f in result.items() if ref.startswith('jobs.0.')))
+        self.assertEqual(json.loads(calls[0].to_messages()[1].content)['alignments'], alignments)
+        claims = deepcopy(CLAIMS)
+        claims['jobs'][0]['company'] = 'Fabricated employer'
+        result, _ = await self.resolve({'jobs.0.company': {
+            'status': 'MISMATCH', 'evidence_paths': ['experience'],
+            'reason': 'Sufficient complete history establishes employer absence'}}, claims=claims, alignments=alignments)
+        self.assertEqual(result['jobs.0.company']['status'], 'MISMATCH')
+
+    async def test_anchored_record_cannot_silently_realign_but_collection_absence_is_supported(self):
+        profile = deepcopy(PROFILE)
+        profile['education'].append(dict(profile['education'][0], degree='Other degree'))
+        for path in ('education.1.degree', 'experience.0.company'):
+            with self.subTest(path=path), self.assertRaises(ValueError):
+                await self.resolve({'education.0.degree': {
+                    'status': 'MISMATCH', 'evidence_paths': [path], 'reason': 'Wrong aligned evidence'}}, profile=profile)
+        with self.assertRaises(ValueError):
+            await self.resolve({'education.0.degree': {
+                'status': 'MATCH', 'evidence_paths': ['education'], 'reason': 'Borrowing a degree from the collection'}})
+        profile['education'][0]['degree'] = 'BSc'
+        result, _ = await self.resolve({'education.0.degree': {
+            'status': 'MISMATCH', 'evidence_paths': ['education'], 'reason': 'Complete history contradicts degree'}}, profile=profile)
+        self.assertEqual(result['education.0.degree']['status'], 'MISMATCH')
+
+    async def test_employment_aliases_cannot_borrow_another_aligned_record(self):
+        claims = deepcopy(CLAIMS)
+        claims['jobs'][0]['company'] = 'Company A alias'
+        with self.assertRaises(ValueError):
+            await self.resolve({'jobs.0.company': {
+                'status': 'MATCH', 'evidence_paths': ['experience.0.company'],
+                'reason': 'Borrowing company from the wrong record'}}, claims)
+
+    async def test_missing_duplicate_invented_ids_and_invalid_evidence_fail_atomically(self):
+        findings = DeterministicClaimVerifier().verify(CLAIMS, PROFILE, ALIGNMENTS)
+        valid = self.decisions(findings, {'education.0.degree': {
+            'status': 'MATCH', 'evidence_paths': ['education.0.degree'], 'reason': 'Equivalent degree'}})
+        invalid = [None, [], {}, {'findings': []}, dict(valid, extra=True)]
+        for field, value in (('claim_id', 'invented'), ('claim_id', 'name'), ('claim_id', None),
+                             ('status', 'VALID'), ('reason', ''), ('reason', None),
+                             ('evidence_paths', None), ('evidence_paths', []),
+                             ('evidence_paths', ['education.0.degree', 'education.0.degree']),
+                             ('evidence_paths', [None]), ('evidence_paths', ['education.99.degree']),
+                             ('evidence_paths', ['headline']), ('evidence_paths', ['hometown']),
+                             ('evidence_paths', ['experience.0.description']), ('extra', True)):
+            output = deepcopy(valid)
+            output['findings'][0][field] = value
+            invalid.append(output)
+        invalid.append({'findings': valid['findings'] * 2})
+        for output in invalid:
+            with self.subTest(output=output):
+                original = deepcopy(findings)
+                resolver, calls = self.model(output)
+                with self.assertRaises(ValueError):
+                    await resolver.resolve(CLAIMS, PROFILE, ALIGNMENTS, findings)
+                self.assertEqual(findings, original)
+                self.assertEqual(len(calls), 1)
+
+    async def test_null_evidence_malformed_json_and_model_failures(self):
+        profile = deepcopy(PROFILE)
+        profile['education'][0]['degree'] = None
+        with self.assertRaises(ValueError):
+            await self.resolve({'education.0.degree': {
+                'status': 'MATCH', 'evidence_paths': ['education.0.degree'], 'reason': 'Unsupported'}}, profile=profile)
+        findings = DeterministicClaimVerifier().verify(CLAIMS, PROFILE, ALIGNMENTS)
+        for output in ('not JSON', '{"findings":', RuntimeError('Model unavailable')):
+            resolver, calls = self.model(output)
+            with self.subTest(output=output), self.assertRaises((ValueError, RuntimeError)):
+                await resolver.resolve(CLAIMS, PROFILE, ALIGNMENTS, findings)
+            self.assertEqual(len(calls), 1)
+
+    async def test_empty_skills_without_completeness_can_remain_unknown(self):
+        result, calls = await self.resolve({}, profile=dict(deepcopy(PROFILE), skills=[]))
+        self.assertEqual(result['skills.0.name']['status'], 'UNKNOWN')
+        self.assertIn('empty skills list alone does not establish exhaustiveness', SEMANTIC_PROMPT)
+

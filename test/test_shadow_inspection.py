@@ -13,8 +13,18 @@ from langchain_core.runnables import RunnableLambda
 
 from scripts import inspect_batch
 from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
+from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
 from test_claim_comparator import CLAIMS, PROFILE
 from test_record_aligner import ALIGNMENTS
+
+
+def semantic_resolver():
+    def respond(prompt):
+        unknown = json.loads(prompt.to_messages()[1].content)['unknown_findings']
+        return AIMessage(content=json.dumps({'findings': [
+            {'claim_id': finding['claim_id'], 'status': 'UNKNOWN', 'evidence_paths': [],
+             'reason': 'Semantic evidence remains insufficient'} for finding in unknown]}))
+    return SemanticClaimResolver(RunnableLambda(respond))
 
 
 def record():
@@ -33,23 +43,100 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
         def respond(prompt, **kwargs):
             prompts.append(prompt)
             options.append(kwargs)
+            if 'unknown_findings' in json.loads(prompt.to_messages()[1].content):
+                return AIMessage(content=json.dumps({'findings': [
+                    {'claim_id': f['claim_id'], 'status': 'UNKNOWN', 'evidence_paths': [],
+                     'reason': 'Insufficient evidence'}
+                    for f in json.loads(prompt.to_messages()[1].content)['unknown_findings']]}))
             return AIMessage(content=json.dumps(ALIGNMENTS))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)) as factory:
-            aligner, verifier = inspect_batch._build_shadow_components()
+            aligner, verifier, resolver = inspect_batch._build_shadow_components()
         production = record()
         production['expected'] = {'label': 1, 'reason': 'Private grading information'}
         original = deepcopy(production)
-        report = await inspect_batch._inspect_shadow(production, aligner, verifier)
+        report = await inspect_batch._inspect_shadow(production, aligner, verifier, resolver)
         self.assertEqual(production, original)
         self.assertEqual(report['alignments'], ALIGNMENTS)
-        self.assertEqual(report['llm_calls'], 1)
+        self.assertEqual(report['llm_calls'], 2)
+        self.assertEqual(report['semantic_llm_calls'], 1)
+        self.assertEqual(report['alignment_llm_calls'], 1)
         self.assertEqual(report['errors'], [])
         self.assertTrue(all(row['agreement'] for row in report['comparisons']))
         self.assertEqual(set(json.loads(prompts[0].to_messages()[1].content)), {'claims', 'profile'})
         self.assertNotIn('Private grading information', prompts[0].to_messages()[1].content)
         factory.assert_called_once_with(model='deepseek-v4-flash', timeout=60, max_retries=0)
         self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}},
-                                   'response_format': {'type': 'json_object'}}])
+                                   'response_format': {'type': 'json_object'}}] * 2)
+        self.assertEqual(len(prompts), 2)
+        self.assertTrue(all('Private grading information' not in prompt.to_messages()[1].content for prompt in prompts))
+
+    async def test_semantic_resolution_changes_only_shadow_score_and_captures_both_comparisons(self):
+        production = record()
+        original = deepcopy(production)
+        aligner = Mock()
+        aligner.align = AsyncMock(return_value=deepcopy(ALIGNMENTS))
+        resolver = SemanticClaimResolver(RunnableLambda(lambda _: AIMessage(content=json.dumps({'findings': [
+            {'claim_id': 'education.0.degree', 'status': 'MATCH', 'evidence_paths': ['education.0.degree'],
+             'reason': 'MBA is Master of Business Administration'}]}))))
+        report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier(), resolver)
+        self.assertEqual(report['errors'], [])
+        self.assertEqual(report['semantic_claim_ids'], ['education.0.degree'])
+        self.assertEqual(report['semantic_findings'][0]['status'], 'MATCH')
+        self.assertEqual(next(f for f in report['deterministic_findings'] if f['claim_id'] == 'education.0.degree')['status'], 'UNKNOWN')
+        self.assertEqual(report['baseline_score'], 0.5)
+        self.assertEqual(report['production_score'], 0.9)
+        self.assertEqual(report['shadow_score'], 0.9)
+        self.assertEqual(len(report['hybrid_comparisons']), len(report['findings']))
+        self.assertEqual(len(report['final_production_comparisons']), len(report['findings']))
+        self.assertEqual(production, original)
+
+    async def test_no_unknown_skips_semantic_stage_and_preserves_objective_contradiction(self):
+        production = record()
+        production['result']['claims']['education'][0]['degree'] = 'MBA'
+        production['result']['profiles'][0]['experience'][1]['start_year'] = 2019
+        baseline = DeterministicClaimVerifier().verify(production['result']['claims'],
+            production['result']['profiles'][0], ALIGNMENTS)
+        production['comparison_output_before_validation'] = deepcopy(baseline)
+        production['result']['findings'] = deepcopy(baseline)
+        production['result']['score'] = production['score'] = 0.1
+        original = deepcopy(production)
+        aligner, resolver = Mock(), Mock()
+        aligner.align = AsyncMock(return_value=deepcopy(ALIGNMENTS))
+        resolver.resolve = AsyncMock(side_effect=AssertionError('No semantic call allowed'))
+        report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier(), resolver)
+        resolver.resolve.assert_not_awaited()
+        self.assertEqual(report['semantic_claim_ids'], [])
+        self.assertEqual(report['semantic_llm_calls'], 0)
+        self.assertEqual(report['semantic_seconds'], 0)
+        self.assertEqual(report['shadow_score'], 0.1)
+        self.assertEqual(report['findings'], baseline)
+        self.assertEqual(production, original)
+
+    async def test_invalid_semantic_outputs_preserve_deterministic_findings_atomically(self):
+        for output in ('not JSON', RuntimeError('Model unavailable'), {'findings': []}, {'findings': [
+            {'claim_id': 'education.0.degree', 'status': 'MATCH', 'evidence_paths': ['education.0.degree'],
+             'reason': 'Valid first decision'},
+            {'claim_id': 'jobs.0.start_year', 'status': 'MISMATCH', 'evidence_paths': ['experience.1.start_year'],
+             'reason': 'Forbidden objective replacement'}]}):
+            with self.subTest(output=output):
+                production = record()
+                original = deepcopy(production)
+                aligner = Mock()
+                aligner.align = AsyncMock(return_value=deepcopy(ALIGNMENTS))
+                calls = []
+                def respond(_):
+                    calls.append(True)
+                    if isinstance(output, Exception):
+                        raise output
+                    return AIMessage(content=output if isinstance(output, str) else json.dumps(output))
+                resolver = SemanticClaimResolver(RunnableLambda(respond))
+                report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier(), resolver)
+                self.assertEqual(report['findings'], report['deterministic_findings'])
+                self.assertEqual(report['semantic_findings'], [])
+                self.assertEqual(report['shadow_score'], 0.5)
+                self.assertEqual(report['errors'][0]['stage'], 'shadow_semantic')
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(production, original)
 
     async def test_ordinary_shadow_empty_skills_remain_unknown(self):
         production = record()
@@ -60,7 +147,7 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
         aligner = Mock()
         aligner.align = AsyncMock(return_value=deepcopy(ALIGNMENTS))
 
-        report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier())
+        report = await inspect_batch._inspect_shadow(production, aligner, DeterministicClaimVerifier(), semantic_resolver())
 
         skills = [finding for finding in report['findings'] if finding['claim_id'].startswith('skills.')]
         self.assertTrue(skills)
@@ -83,7 +170,7 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
                 aligner.align = AsyncMock(side_effect=align)
                 verifier = Mock()
                 verifier.verify.side_effect = RuntimeError('Verification unavailable')
-                report = await inspect_batch._inspect_shadow(production, aligner, verifier)
+                report = await inspect_batch._inspect_shadow(production, aligner, verifier, semantic_resolver())
                 self.assertEqual(production, original)
                 self.assertEqual(report['errors'][0]['stage'], stage)
                 self.assertEqual(report['findings'], [])
@@ -99,7 +186,7 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
                     production['comparison_output_before_validation'] = None
                 aligner, verifier = Mock(), Mock()
                 aligner.align = AsyncMock(side_effect=AssertionError('No model call allowed'))
-                report = await inspect_batch._inspect_shadow(production, aligner, verifier)
+                report = await inspect_batch._inspect_shadow(production, aligner, verifier, semantic_resolver())
                 self.assertEqual(report['skipped'], reason)
                 self.assertEqual(report['llm_calls'], 0)
                 aligner.align.assert_not_awaited()
@@ -110,7 +197,7 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
         production['comparison_output_before_validation'] = []
         aligner = Mock()
         aligner.align = AsyncMock()
-        report = await inspect_batch._inspect_shadow(production, aligner, Mock())
+        report = await inspect_batch._inspect_shadow(production, aligner, Mock(), semantic_resolver())
         self.assertEqual(report['errors'][0]['stage'], 'shadow_input')
         aligner.align.assert_not_awaited()
 
@@ -149,7 +236,8 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
             peak = max(peak, active)
             try:
                 await asyncio.sleep(0.01)
-                return {'comparisons': [], 'llm_calls': 0, 'elapsed_seconds': 0.01,
+                return {'comparisons': [], 'hybrid_comparisons': [], 'shadow_score': 0.5,
+                        'semantic_claim_ids': [], 'llm_calls': 0, 'elapsed_seconds': 0.01,
                         'errors': [{'stage': 'shadow_alignment', 'message': 'failed'}], 'skipped': None}
             finally:
                 active -= 1
@@ -161,7 +249,7 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
                  patch.object(inspect_batch, 'load_mcp_tools', new=AsyncMock(return_value=[])), \
                  patch.object(inspect_batch, 'build_agent', return_value=agent), \
                  patch.object(inspect_batch, 'read_ground_truth', return_value={}), \
-                 patch.object(inspect_batch, '_build_shadow_components', return_value=(Mock(), Mock())), \
+                 patch.object(inspect_batch, '_build_shadow_components', return_value=(Mock(), Mock(), Mock())), \
                  patch.object(inspect_batch, '_inspect_shadow', side_effect=inspect_shadow), \
                  patch('hw2._write_checkpoint') as checkpoint, redirect_stdout(io.StringIO()):
                 payload = await inspect_batch.inspect_batch(Path('public_test'), output, shadow=True)
