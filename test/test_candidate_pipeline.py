@@ -148,7 +148,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(agent.identity_resolver, IdentityResolver)
         self.assertIsInstance(agent.identity_validator, IdentityDecisionValidator)
 
-    async def test_only_prioritization_sends_thinking_disabled_to_model(self):
+    async def test_extraction_and_prioritization_disable_thinking_but_identity_is_unchanged(self):
         received_options = []
 
         def respond(prompt, **options):
@@ -168,5 +168,6 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         await agent.prioritizer.prioritize(CLAIMS, [{'id': 1}])
         await agent.identity_resolver.resolve(CLAIMS, [{'id': 1}])
         self.assertEqual(received_options, [
-            {}, {'extra_body': {'thinking': {'type': 'disabled'}}}, {},
+            {'extra_body': {'thinking': {'type': 'disabled'}}},
+            {'extra_body': {'thinking': {'type': 'disabled'}}}, {},
         ])
