@@ -72,6 +72,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         extractor, retriever, prioritizer, resolver = (AsyncMock() for _ in range(4))
         extractor.extract.return_value = deepcopy(CLAIMS)
         retriever.MAX_PROFILES = 2
+        retriever.MAX_SEARCH_RESULTS = 20
         retriever.search.side_effect = [[{'id': n} for n in filtered], [{'id': n} for n in broad]]
         def retrieve(hits):
             profiles = [profile(h['id']) for h in hits if h['id'] not in failed]
