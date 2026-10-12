@@ -83,6 +83,10 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
 
     async def comparison(self, claims, profile, chosen):
         contract = ClaimComparisonValidator()
+        if 'city' not in chosen:
+            # Non-location tests use the common London/London fixture.
+            chosen = {'city': {'status': 'MATCH', 'evidence': [{'path': 'city', 'value': 'London'}],
+                               'reason': 'The supplied cities agree'}, **chosen}
         findings = [{'claim_id': reference, 'cv_claim': claim, 'status': 'UNKNOWN',
                      'evidence': [], 'reason': 'Insufficient evidence'}
                     for reference, claim in contract.claim_catalog(claims).items()]
