@@ -1,4 +1,5 @@
 import json
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -183,7 +184,45 @@ class ClaimComparisonValidator:
         evidence = self._evidence_catalog(self.comparison_profile(profile))
         findings = [self._reconstruct_finding(decision, catalog, evidence)
                     for decision in output["findings"]]
-        return self.validate(findings, claims, profile)
+        return self.adjudicate_city(findings, claims, profile)
+
+    def adjudicate_city(self, findings: Any, claims: dict[str, Any],
+                        profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Override only supported city judgments, never repair invalid model output."""
+        self.validate(findings, claims, profile)
+        city = profile.get("city")
+        if not isinstance(city, str) or not city.strip():
+            return findings
+        normalized = self._normalize_city(city, profile.get("country"))
+        if not normalized:
+            return findings
+        for candidate in claims["city"]["candidates"]:
+            if candidate["role"] not in ("current", "unspecified"):
+                continue
+            if self._normalize_city(candidate["city"], profile.get("country")) != normalized:
+                continue
+            replacement = {
+                "claim_id": "city", "cv_claim": deepcopy(self.claim_catalog(claims)["city"]),
+                "status": "MATCH", "evidence": [{"path": "city", "value": city}],
+                "reason": f"Profile city {city!r} matches the CV's {candidate['role']} location "
+                          f"candidate {candidate['city']!r} after conservative normalization.",
+            }
+            merged = [replacement if finding["claim_id"] == "city" and finding["status"] != "MATCH"
+                      else finding for finding in findings]
+            return self.validate(merged, claims, profile)
+        return findings
+
+    def _normalize_city(self, value: str, country: Any) -> str:
+        """Strip only an explicitly delimited qualifier matching supplied country metadata."""
+        parts = [part for part in re.split(r"[,()|/]", value) if part.strip()]
+        if isinstance(country, str) and len(parts) > 1:
+            qualifier = self._city_words(parts[-1])
+            if qualifier and qualifier == self._city_words(country):
+                value = " ".join(parts[:-1])
+        return self._city_words(value)
+
+    def _city_words(self, value: str) -> str:
+        return " ".join(re.findall(r"[^\W_]+", value.casefold()))
 
     def _reconstruct_finding(self, decision: Any, catalog: dict, evidence: dict) -> dict[str, Any]:
         required = {"claim_id", "status", "evidence_paths", "reason"}
