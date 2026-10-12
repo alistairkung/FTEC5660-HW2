@@ -76,6 +76,17 @@ from cv_verifier.candidate_prioritizer import CandidatePrioritizer
 from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
+from cv_verifier.claim_comparator import ClaimComparator
+
+
+def build_claim_comparator() -> ClaimComparator:
+    """Construct standalone comparison without adding it to the identity pipeline."""
+    from langchain_deepseek import ChatDeepSeek
+
+    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    return ClaimComparator(llm)
 
 
 def build_agent(tools: list[Any]) -> Any:
