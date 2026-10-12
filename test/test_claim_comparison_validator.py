@@ -18,6 +18,22 @@ DECISIONS = {'findings': [
 
 
 class ClaimComparisonValidatorTests(unittest.TestCase):
+    def test_reflection_rejects_city_name_and_skills_at_validator_boundary(self):
+        claims = deepcopy(CLAIMS)
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': 'Hong Kong'}
+        profile = dict(PROFILE, name='Different Name', city='Beijing', skills=[{'name': 'Rust'}])
+        validator = ClaimComparisonValidator()
+        baseline = validator.reconstruct({'findings': [
+            {'claim_id': ref, 'status': 'MATCH', 'evidence_paths': [ref], 'reason': 'Baseline interpretation'}
+            for ref in validator.claim_catalog(claims)]}, claims, profile)
+        original = deepcopy(baseline)
+        for reference in ('city', 'name', 'skills.0.name'):
+            correction = {'claim_id': reference, 'status': 'MISMATCH',
+                          'evidence_paths': [reference], 'reason': 'Different values'}
+            with self.subTest(reference=reference), self.assertRaisesRegex(ValueError, 'not eligible'):
+                validator.apply_corrections({'corrections': [correction]}, baseline, claims, profile)
+            self.assertEqual(baseline, original)
+
     def test_reconstructs_canonical_claims_and_evidence_without_mutating_inputs(self):
         claims, profile, decisions = deepcopy(CLAIMS), deepcopy(PROFILE), deepcopy(DECISIONS)
         validator = ClaimComparisonValidator()

@@ -8,6 +8,10 @@ class ClaimComparisonValidator:
 
     JOB_FIELDS = ("company", "title", "seniority", "start_year", "end_year", "is_current")
     EDUCATION_FIELDS = ("school", "degree", "field", "graduation_year")
+    REFLECTION_FIELDS = {
+        "jobs": ("title", "seniority", "start_year", "end_year", "is_current"),
+        "education": ("degree", "graduation_year"),
+    }
 
     def claim_catalog(self, claims: dict[str, Any]) -> dict[str, dict[str, Any]]:
         catalog = {}
@@ -60,6 +64,7 @@ class ClaimComparisonValidator:
         for decision in output["corrections"]:
             finding = self._reconstruct_finding(decision, catalog, evidence)
             reference = finding["claim_id"]
+            self._validate_reflection_reference(reference)
             if reference in replacements:
                 raise ValueError("Duplicate reflection claim reference")
             if originals[reference]["status"] != "MATCH":
@@ -72,29 +77,31 @@ class ClaimComparisonValidator:
         merged = [deepcopy(replacements.get(finding["claim_id"], finding)) for finding in baseline]
         return self.validate(merged, claims, profile)
 
+    def _validate_reflection_reference(self, reference: str) -> None:
+        parts = reference.split(".")
+        if len(parts) != 3 or parts[0] not in self.REFLECTION_FIELDS:
+            raise ValueError("Claim is not eligible for reflection corrections")
+        if parts[2] not in self.REFLECTION_FIELDS[parts[0]]:
+            raise ValueError("Claim is not eligible for reflection corrections")
+
     def _has_relevant_contradiction(self, finding: dict[str, Any]) -> bool:
         """Check evidence relevance and reject unchanged scalar values; meaning stays with the LLM."""
         reference = finding["claim_id"]
         parts = reference.split(".")
-        if len(parts) == 1:
-            collection, fields = None, (reference,)
+        collection = "experience" if parts[0] == "jobs" else "education"
+        field = parts[-1]
+        if field in ("title", "seniority"):
+            fields = ("title", "seniority")
+        elif field == "graduation_year":
+            fields = ("end_year",)
         else:
-            collection = {"jobs": "experience", "education": "education", "skills": "skills"}[parts[0]]
-            field = parts[-1]
-            if field == "title":
-                fields = ("title", "seniority")
-            elif field == "graduation_year":
-                fields = ("end_year",)
-            elif field in ("dates", "record"):
-                fields = self.JOB_FIELDS if parts[0] == "jobs" else ("school", "degree", "field", "end_year")
-            else:
-                fields = (field,)
+            fields = (field,)
         for citation in finding["evidence"]:
             path = citation["path"]
-            if collection is not None and path == collection and isinstance(citation["value"], list):
+            if path == collection and isinstance(citation["value"], list):
                 return True
             path_parts = path.split(".")
-            relevant = path == reference if collection is None else (
+            relevant = (
                 len(path_parts) == 3 and path_parts[0] == collection and path_parts[-1] in fields
             )
             if relevant and citation["value"] != finding["cv_claim"]["value"]:

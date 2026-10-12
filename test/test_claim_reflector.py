@@ -84,6 +84,8 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_dates_and_degree_contradictions(self):
         for reference, path, value in (
             ('jobs.0.start_year', 'experience.1.start_year', 2019),
+            ('jobs.1.end_year', 'experience.0.end_year', 2019),
+            ('jobs.0.is_current', 'experience.1.is_current', False),
             ('education.0.graduation_year', 'education.0.end_year', 2011),
             ('education.0.degree', 'education.0.degree', 'BSc'),
         ):
@@ -97,13 +99,40 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(finding['evidence'][0]['value'], value)
 
     async def test_authoritative_empty_collection_supports_absence(self):
-        profile = dict(PROFILE, skills=[])
+        profile = dict(PROFILE, education=[])
         findings = baseline()
-        findings[-1]['evidence'] = [{'path': 'skills', 'value': []}]
-        result, _ = await self.reflect({'corrections': [correction('skills.0.name', ['skills'])]},
+        for finding in findings:
+            if finding['claim_id'].startswith('education.'):
+                finding['evidence'] = [{'path': 'education', 'value': []}]
+        result, original = await self.reflect({'corrections': [correction('education.0.degree', ['education'])]},
                                        profile=profile, findings=findings)
-        self.assertEqual(result[-1]['status'], 'MISMATCH')
-        self.assertEqual(result[-1]['evidence'], [{'path': 'skills', 'value': []}])
+        changed = [f for f, old in zip(result, original) if f != old]
+        self.assertEqual([f['claim_id'] for f in changed], ['education.0.degree'])
+        self.assertEqual(changed[0]['status'], 'MISMATCH')
+        self.assertEqual(changed[0]['evidence'], [{'path': 'education', 'value': []}])
+
+    async def test_ineligible_claim_corrections_rejected_even_with_different_valid_evidence(self):
+        claims = deepcopy(CLAIMS)
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': 'Hong Kong'}
+        profile = deepcopy(PROFILE)
+        profile.update(name='Different Name', city='Beijing', skills=[{'name': 'Rust'}])
+        profile['experience'][1]['company'] = 'Other Employer'
+        profile['education'][0].update(school='Other School', field='Other Field')
+        for reference, paths in (
+            ('city', ['city']), ('name', ['name']), ('skills.0.name', ['skills.0.name']),
+            ('jobs.0.company', ['experience.1.company']),
+            ('education.0.school', ['education.0.school']), ('education.0.field', ['education.0.field']),
+        ):
+            with self.subTest(reference=reference), self.assertRaisesRegex(ValueError, 'not eligible'):
+                await self.reflect({'corrections': [correction(reference, paths)]}, claims, profile)
+
+    async def test_explicit_seniority_contradiction_remains_eligible(self):
+        claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+        claims['jobs'][0]['seniority'] = 'senior'
+        profile['experience'][1]['seniority'] = 'junior'
+        result, original = await self.reflect({'corrections': [correction('jobs.0.seniority',
+            ['experience.1.seniority'])]}, claims, profile)
+        self.assertEqual([f['claim_id'] for f, old in zip(result, original) if f != old], ['jobs.0.seniority'])
 
     async def test_malformed_output_and_references_rejected(self):
         valid = correction('jobs.0.title', ['experience.1.title'])
@@ -137,9 +166,9 @@ class ClaimReflectorTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_match_findings_cannot_be_corrected(self):
         findings = baseline()
-        findings[0]['status'] = 'UNKNOWN'
+        next(f for f in findings if f['claim_id'] == 'jobs.0.title')['status'] = 'UNKNOWN'
         with self.assertRaises(ValueError):
-            await self.reflect({'corrections': [correction('name', ['name'])]}, findings=findings)
+            await self.reflect({'corrections': [correction('jobs.0.title', ['experience.1.title'])]}, findings=findings)
 
     async def test_invalid_correction_rejects_entire_batch_without_mutating_baseline(self):
         with self.assertRaises(ValueError):
