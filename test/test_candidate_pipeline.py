@@ -10,6 +10,8 @@ from cv_verifier.claim_extractor import ClaimExtractor
 from cv_verifier.candidate_prioritizer import CandidatePrioritizer
 from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from hw2 import build_agent
+from cv_verifier.identity_resolver import IdentityResolver
+from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 
 CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None},
           'jobs': [], 'education': [], 'skills': []}
@@ -30,7 +32,8 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         prioritizer = AsyncMock()
         prioritizer.prioritize.return_value = [3, 2, 1] if ranking is None else ranking
         pipeline = CandidatePipeline(extractor, ClaimValidator(), retriever,
-                                     prioritizer, CandidateRankingValidator())
+                                     prioritizer, CandidateRankingValidator(),
+                                     AsyncMock(), IdentityDecisionValidator())
         return pipeline, extractor, retriever, prioritizer
 
     async def test_real_components_retrieve_in_ranked_order(self):
@@ -44,13 +47,16 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
                     for n in (3, 1)]
         lookup.ainvoke.side_effect = [blocks(p) for p in profiles]
         pipeline = CandidatePipeline(extractor, ClaimValidator(), ProfileRetriever([search, lookup]),
-                                     prioritizer, CandidateRankingValidator())
+                                     prioritizer, CandidateRankingValidator(),
+                                     IdentityResolver(RunnableLambda(lambda _: AIMessage(content=
+                                         '{"candidate_id": 3, "reason": "Supported identity"}'))),
+                                     IdentityDecisionValidator())
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['claims'], CLAIMS)
         self.assertEqual(result['search_hits'], hits)
         self.assertEqual(result['ranked_candidate_ids'], [3, 1, 2])
         self.assertEqual(result['profiles'], profiles)
-        self.assertEqual(result['identity'], 'unresolved')
+        self.assertEqual(result['identity'], 'resolved')
         self.assertTrue(result['retrieval_complete'])
         self.assertTrue(result['retrieval_sampled'])
         self.assertEqual(result['errors'], [])
@@ -65,8 +71,9 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
                     prioritizer.prioritize.side_effect = ranking
                 result = await pipeline.ainvoke('CV')
                 self.assertEqual(result['ranked_candidate_ids'], [1, 2, 3])
-                retriever.retrieve_profiles.assert_awaited_once_with([{'id': 1}, {'id': 2}])
-                self.assertEqual([e['stage'] for e in result['errors']], ['prioritization', 'profile'])
+                self.assertEqual(retriever.retrieve_profiles.await_args_list,
+                                 [call([{'id': 1}, {'id': 2}]), call([{'id': 3}])])
+                self.assertEqual([e['stage'] for e in result['errors']], ['prioritization', 'profile', 'profile'])
                 self.assertEqual(result['identity'], 'unresolved')
                 self.assertFalse(result['retrieval_complete'])
                 self.assertEqual(prioritizer.prioritize.await_count, 1)
@@ -112,3 +119,5 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
             call(model='deepseek-v4-flash', timeout=60, max_retries=0)])
         self.assertIsInstance(agent.prioritizer, CandidatePrioritizer)
         self.assertIsInstance(agent.ranking_validator, CandidateRankingValidator)
+        self.assertIsInstance(agent.identity_resolver, IdentityResolver)
+        self.assertIsInstance(agent.identity_validator, IdentityDecisionValidator)

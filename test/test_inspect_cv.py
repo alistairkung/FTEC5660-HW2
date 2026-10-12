@@ -17,6 +17,9 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
             "search_hits": [{"id": 1}, {"id": 2}],
             "ranked_candidate_ids": [2, 1],
             "profiles": [{"id": 1}], "identity": "unresolved",
+            "selected_candidate_id": None, "identity_reason": "Insufficient evidence",
+            "attempted_candidate_ids": [1, 2], "broader_search_performed": False,
+            "investigation_stop_reason": "candidates_exhausted",
             "retrieval_sampled": False, "retrieval_complete": False,
             "errors": [{"stage": "profile", "person_id": 2, "message": "failed"}],
         }
