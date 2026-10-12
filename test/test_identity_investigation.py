@@ -43,11 +43,11 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3, 4])
         self.assertEqual([[p['id'] for p in c.args[1]] for c in resolver.resolve.await_args_list],
                          [[1, 2], [1, 2, 3, 4]])
-        self.assertEqual(retriever.search.await_count, 1)
+        self.assertEqual(retriever.search.await_count, 2)
         self.assertTrue(result['retrieval_complete'])
         self.assertTrue(result['retrieval_sampled'])
 
-    async def test_broader_search_after_filtered_exhaustion_and_deduplicates_failed_ids(self):
+    async def test_two_searches_combine_and_deduplicate_before_investigation(self):
         pipeline, retriever, resolver = self.pipeline(
             [1, 2], broad=[1, 2, 3, 3, 4], failed=[1],
             decisions=[UNRESOLVED, {'candidate_id': 4, 'reason': 'Employment and education identify 4.'}])
@@ -67,7 +67,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
         self.assertEqual(retriever.retrieve_profiles.await_count, 4)
-        self.assertEqual(retriever.search.await_count, 1)
+        self.assertEqual(retriever.search.await_count, 2)
         resolver.resolve.assert_not_awaited()
         self.assertIsNone(result['selected_candidate_id'])
         self.assertEqual(result['investigation_stop_reason'], 'budget_exhausted')
@@ -86,8 +86,8 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         pipeline, retriever, resolver = self.pipeline([1, 2, 3, 4, 5], broad=range(1, 21))
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
-        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 1, 2, 1])
-        self.assertEqual(resolver.resolve.await_count, 5)
+        self.assertEqual([len(c.args[0]) for c in retriever.retrieve_profiles.await_args_list], [2, 2, 2, 2])
+        self.assertEqual(resolver.resolve.await_count, 4)
         self.assertEqual(result['investigation_stop_reason'], 'budget_exhausted')
 
     async def test_invalid_decision_or_resolver_error_cannot_resolve_identity(self):
@@ -142,4 +142,41 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
         result = await pipeline.ainvoke('CV')
         self.assertEqual(result['attempted_candidate_ids'], [1, 2])
         self.assertEqual(retriever.retrieve_profiles.await_count, 1)
-        self.assertEqual(result['errors'][0]['stage'], 'prioritization')
+        self.assertEqual(result['errors'], [])
+
+    async def test_combined_pool_is_ranked_once_before_retrieval_with_city_metadata_preferred(self):
+        pipeline, retriever, _ = self.pipeline([1, 2], broad=[2, 3])
+        filtered = [{'id': 1, 'headline': 'filtered'}, {'id': 2, 'headline': 'preferred'}]
+        broad = [{'id': 2, 'headline': 'duplicate'}, {'id': 3, 'headline': 'new'}]
+        retriever.search.side_effect = [filtered, broad]
+        async def retrieve(hits):
+            self.assertEqual(retriever.search.await_count, 2)
+            return [profile(hit['id']) for hit in hits], []
+        retriever.retrieve_profiles.side_effect = retrieve
+        result = await pipeline.ainvoke('CV')
+        combined = filtered + [broad[1]]
+        self.assertEqual(result['search_hits'], combined)
+        pipeline.prioritizer.prioritize.assert_awaited_once_with(CLAIMS, combined)
+
+    async def test_either_search_failure_keeps_successful_results(self):
+        for failed_index in (0, 1):
+            with self.subTest(failed_index=failed_index):
+                pipeline, retriever, _ = self.pipeline([1])
+                responses = [[{'id': 1}], [{'id': 2}]]
+                responses[failed_index] = RuntimeError('failed')
+                retriever.search.side_effect = responses
+                result = await pipeline.ainvoke('CV')
+                self.assertEqual(result['attempted_candidate_ids'], [2 if failed_index == 0 else 1])
+                self.assertEqual(result['errors'][0]['stage'], 'search')
+                self.assertEqual(retriever.search.await_count, 2)
+
+    async def test_both_search_failures_remain_unresolved_without_model_calls(self):
+        pipeline, retriever, resolver = self.pipeline([])
+        retriever.search.side_effect = [RuntimeError('filtered failed'), RuntimeError('name failed')]
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual([error['scope'] for error in result['errors']], ['city_filtered', 'name_only'])
+        self.assertEqual(result['identity'], 'unresolved')
+        self.assertFalse(result['retrieval_complete'])
+        pipeline.prioritizer.prioritize.assert_not_awaited()
+        retriever.retrieve_profiles.assert_not_awaited()
+        resolver.resolve.assert_not_awaited()

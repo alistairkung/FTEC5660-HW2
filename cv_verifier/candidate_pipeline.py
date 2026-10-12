@@ -26,42 +26,51 @@ class CandidatePipeline:
         except Exception as error:
             return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
 
-        try:
-            hits = await self.retriever.search(claims["name"]["value"], claims["city"]["value"])
-        except Exception as error:
-            return self._build_result(
-                claims=claims, errors=[{"stage": "search", "message": str(error)}],
-            )
+        hits, search_errors, search_succeeded = await self._search_candidates(claims)
+        if not search_succeeded:
+            return self._build_result(claims=claims, errors=search_errors,
+                                      broader_search=bool(claims["city"]["value"]))
         ranking, ranking_errors = await self._prioritize(claims, hits)
+        return await self._investigate(
+            claims, hits, ranking, search_errors + ranking_errors,
+            broader_search=bool(claims["city"]["value"]),
+        )
 
-        return await self._investigate(claims, hits, ranking, ranking_errors)
+    async def _search_candidates(
+        self, claims: dict[str, Any],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
+        city = claims["city"]["value"]
+        filters = [city, None] if city else [None]
+        combined = []
+        known_ids = set()
+        errors = []
+        succeeded = False
+        for location in filters:
+            try:
+                hits = await self.retriever.search(claims["name"]["value"], location)
+                combined.extend(self._new_hits(hits, known_ids))
+                succeeded = True
+            except Exception as error:
+                errors.append({"stage": "search", "scope": "city_filtered" if location else "name_only",
+                               "message": str(error)})
+        return combined, errors, succeeded
 
     async def _investigate(
         self, claims: dict[str, Any], hits: list[dict[str, Any]],
-        ranking: list[int], errors: list[dict[str, Any]],
+        ranking: list[int], errors: list[dict[str, Any]], broader_search: bool,
     ) -> dict[str, Any]:
         hits = self._new_hits(hits, set())
         ranking = list(dict.fromkeys(ranking))
         profiles = []
         attempted_hits = []
         attempted_ids = set()
-        broader_search = False
         decision = {"candidate_id": None, "reason": "No successfully retrieved profiles to examine."}
         stop_reason = "candidates_exhausted"
 
         while len(attempted_hits) < self.MAX_PROFILE_ATTEMPTS:
             batch = self._next_batch(hits, ranking, attempted_ids)
             if not batch:
-                if broader_search or not claims["city"]["value"]:
-                    break
-                broader_search = True
-                new_hits, new_ranking, search_errors = await self._broader_candidates(claims, hits)
-                errors.extend(search_errors)
-                hits.extend(new_hits)
-                ranking.extend(new_ranking)
-                batch = self._next_batch(hits, ranking, attempted_ids)
-                if not batch:
-                    break
+                break
 
             remaining = self.MAX_PROFILE_ATTEMPTS - len(attempted_hits)
             batch = batch[:remaining]
@@ -89,17 +98,6 @@ class CandidatePipeline:
         hits_by_id = {hit["id"]: hit for hit in hits}
         remaining_ids = [candidate_id for candidate_id in ranking if candidate_id not in attempted_ids]
         return [hits_by_id[candidate_id] for candidate_id in remaining_ids[:self.retriever.MAX_PROFILES]]
-
-    async def _broader_candidates(
-        self, claims: dict[str, Any], examined_hits: list[dict[str, Any]],
-    ) -> tuple[list[dict[str, Any]], list[int], list[dict[str, Any]]]:
-        try:
-            hits = await self.retriever.search(claims["name"]["value"], None)
-        except Exception as error:
-            return [], [], [{"stage": "search", "scope": "name_only", "message": str(error)}]
-        new_hits = self._new_hits(hits, {hit["id"] for hit in examined_hits})
-        ranking, errors = await self._prioritize(claims, new_hits)
-        return new_hits, ranking, errors
 
     def _new_hits(self, hits: list[dict[str, Any]], known_ids: set[int]) -> list[dict[str, Any]]:
         unique_hits = []
