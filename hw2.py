@@ -68,6 +68,10 @@ async def load_mcp_tools() -> list[Any]:
     return await client.get_tools()
 
 
+from cv_verifier.extraction import build_extractor
+from cv_verifier.retrieval import CandidateRetrieval
+
+
 def build_agent(tools: list[Any]) -> Any:
     """Create and return your agent once.
 
@@ -83,8 +87,7 @@ def build_agent(tools: list[Any]) -> Any:
     from .env.
     """
     ### YOUR CODE HERE
-    _ = tools
-    return None
+    return CandidateRetrieval(build_extractor(MODEL_NAME), tools)
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
