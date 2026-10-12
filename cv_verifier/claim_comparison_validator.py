@@ -15,9 +15,13 @@ class ClaimComparisonValidator:
 
     def claim_catalog(self, claims: dict[str, Any]) -> dict[str, dict[str, Any]]:
         catalog = {}
-        for field in ("name", "city"):
-            value = claims[field]["value"] if claims[field]["value"] is not None else claims[field]["raw"]
-            self._add_claim(catalog, field, value, claims[field]["raw"])
+        name = claims["name"]
+        self._add_claim(catalog, "name", name["value"] if name["value"] is not None else name["raw"], name["raw"])
+        location = claims["city"]
+        if location["raw"] is not None or location["value"] is not None or location["candidates"]:
+            self._add_claim(catalog, "city", {
+                "value": location["value"], "candidates": deepcopy(location["candidates"]),
+            }, location["raw"])
         for collection, fields in (("jobs", self.JOB_FIELDS), ("education", self.EDUCATION_FIELDS)):
             for index, entry in enumerate(claims[collection]):
                 prefix = f"{collection}.{index}"
@@ -201,6 +205,8 @@ class ClaimComparisonValidator:
             raise ValueError("Comparison evidence must be a list")
         if finding["status"] != "UNKNOWN" and not citations:
             raise ValueError("MATCH and MISMATCH require supplied evidence")
+        if reference == "city":
+            self._validate_city_finding(finding, catalog[reference])
         for citation in citations:
             if not isinstance(citation, dict) or set(citation) != {"path", "value"}:
                 raise ValueError("Evidence requires exactly path and value")
@@ -212,3 +218,11 @@ class ClaimComparisonValidator:
             if json.dumps(citation["value"], sort_keys=True) != json.dumps(evidence[path], sort_keys=True):
                 raise ValueError("Evidence value differs from the supplied profile")
         seen.add(reference)
+
+    def _validate_city_finding(self, finding: dict[str, Any], claim: dict[str, Any]) -> None:
+        candidates = claim["value"]["candidates"]
+        if not any(candidate["role"] in ("current", "unspecified") for candidate in candidates):
+            if finding["status"] != "UNKNOWN":
+                raise ValueError("Without plausible residence candidates the city finding must be UNKNOWN")
+        if any(not isinstance(citation, dict) or citation.get("path") != "city" for citation in finding["evidence"]):
+            raise ValueError("City findings may cite only the profile city")

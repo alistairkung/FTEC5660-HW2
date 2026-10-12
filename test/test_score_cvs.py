@@ -88,7 +88,8 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                 os.chdir(previous)
 
     async def test_runner_end_to_end_with_fake_models_and_tools_and_final_csv(self):
-        claims = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': 'London', 'value': 'London'},
+        claims = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': 'London', 'value': 'London',
+                   'candidates': [{'city': 'London', 'role': 'current'}]},
                   'jobs': [], 'education': [], 'skills': []}
         profiles = {1: {'id': 1, 'name': 'Person', 'city': 'London', 'experience': [], 'education': [], 'skills': []},
                     2: {'id': 2, 'name': 'Other', 'city': 'London', 'experience': [], 'education': [], 'skills': []}}

@@ -7,7 +7,8 @@ from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 
 CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'},
-          'city': {'raw': 'London', 'value': 'London'}, 'jobs': [], 'education': [], 'skills': []}
+          'city': {'raw': 'London', 'value': 'London',
+                   'candidates': [{'city': 'London', 'role': 'current'}]}, 'jobs': [], 'education': [], 'skills': []}
 UNRESOLVED = {'candidate_id': None, 'reason': 'Candidates remain ambiguous.'}
 
 
@@ -16,6 +17,53 @@ def profile(candidate_id):
 
 
 class InvestigationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ambiguous_location_hints_search_upfront_and_keep_name_only_coverage(self):
+        pipeline, retriever, _ = self.pipeline([])
+        claims = pipeline.extractor.extract.return_value
+        claims['city'] = {'raw': 'Beijing, China | Hong Kong', 'value': None, 'candidates': [
+            {'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        retriever.search.side_effect = [
+            [{'id': 1, 'headline': 'first location'}],
+            [{'id': 1, 'headline': 'duplicate'}, {'id': 2}], [{'id': 3}],
+        ]
+        async def retrieve(hits):
+            self.assertEqual(retriever.search.await_count, 3)
+            return [profile(h['id']) for h in hits], []
+        retriever.retrieve_profiles.side_effect = retrieve
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(retriever.search.await_args_list,
+                         [call('Person', 'Beijing'), call('Person', 'Hong Kong'), call('Person', None)])
+        self.assertEqual(result['search_hits'], [{'id': 1, 'headline': 'first location'}, {'id': 2}, {'id': 3}])
+        pipeline.prioritizer.prioritize.assert_awaited_once_with(claims, result['search_hits'])
+        self.assertEqual(result['attempted_candidate_ids'], [1, 2, 3])
+        self.assertIsNone(result['claims']['city']['value'])
+        self.assertTrue(result['broader_search_performed'])
+
+    async def test_hometown_and_previous_locations_never_filter_discovery(self):
+        for role in ('hometown', 'previous'):
+            pipeline, retriever, _ = self.pipeline([1])
+            pipeline.extractor.extract.return_value['city'] = {
+                'raw': f'{role}: London', 'value': None, 'candidates': [{'city': 'London', 'role': role}]}
+            result = await pipeline.ainvoke('CV')
+            retriever.search.assert_awaited_once_with('Person', None)
+            self.assertFalse(result['broader_search_performed'])
+
+    async def test_location_filters_deduplicated_and_still_bound_to_eight_profile_attempts(self):
+        pipeline, retriever, _ = self.pipeline([])
+        pipeline.extractor.extract.return_value['city'] = {
+            'raw': 'Current Beijing; Beijing and Hong Kong also mentioned', 'value': 'Beijing',
+            'candidates': [{'city': 'Beijing', 'role': 'current'}, {'city': 'beijing', 'role': 'unspecified'},
+                           {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        retriever.search.side_effect = [[{'id': n} for n in range(1, 21)],
+                                      RuntimeError('second city failed'), [{'id': 21}]]
+        result = await pipeline.ainvoke('CV')
+        self.assertEqual(retriever.search.await_args_list,
+                         [call('Person', 'Beijing'), call('Person', 'Hong Kong'), call('Person', None)])
+        self.assertEqual(result['attempted_candidate_ids'], list(range(1, 9)))
+        self.assertEqual(retriever.retrieve_profiles.await_count, 4)
+        self.assertEqual(result['search_hits'][-1], {'id': 21})
+        self.assertEqual(result['errors'][0]['stage'], 'search')
+
     def pipeline(self, filtered, broad=(), decisions=None, failed=()):
         extractor, retriever, prioritizer, resolver = (AsyncMock() for _ in range(4))
         extractor.extract.return_value = deepcopy(CLAIMS)
@@ -117,7 +165,7 @@ class InvestigationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_no_city_filter_does_not_repeat_identical_search(self):
         pipeline, retriever, _ = self.pipeline([])
-        pipeline.extractor.extract.return_value['city']['value'] = None
+        pipeline.extractor.extract.return_value['city'] = {'raw': None, 'value': None, 'candidates': []}
         result = await pipeline.ainvoke('CV')
         self.assertEqual(retriever.search.await_count, 1)
         self.assertFalse(result['broader_search_performed'])

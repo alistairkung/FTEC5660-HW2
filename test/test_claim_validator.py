@@ -6,7 +6,7 @@ from cv_verifier.claim_validator import ClaimValidator
 
 VALID_CLAIMS = {
     'name': {'raw': 'Example Person', 'value': 'Example Person'},
-    'city': {'raw': None, 'value': None},
+    'city': {'raw': None, 'value': None, 'candidates': []},
     'jobs': [{'raw': 'Engineer 2019–Present', 'company': None, 'title': 'Engineer',
               'seniority': None, 'dates_raw': '2019–Present', 'start_year': 2019,
               'end_year': None, 'is_current': True}],
@@ -17,6 +17,61 @@ VALID_CLAIMS = {
 
 
 class ClaimValidatorTests(unittest.TestCase):
+    def test_location_roles_and_ambiguous_candidates_preserved_unchanged(self):
+        locations = [
+            {'raw': 'Beijing, China | Hong Kong', 'value': None, 'candidates': [
+                {'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]},
+            {'raw': 'Lives in Beijing; hometown Hong Kong; previously London', 'value': 'Beijing',
+             'candidates': [{'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'hometown'},
+                            {'city': 'London', 'role': 'previous'}]},
+            {'raw': 'Current cities: Beijing and Hong Kong', 'value': None, 'candidates': [
+                {'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'current'}]},
+            {'raw': 'Location unclear', 'value': None, 'candidates': []},
+        ]
+        for location in locations:
+            claims = deepcopy(VALID_CLAIMS)
+            claims['city'] = deepcopy(location)
+            with self.subTest(location=location):
+                self.assertIs(ClaimValidator().validate(claims), claims)
+                self.assertEqual(claims['city'], location)
+
+    def test_malformed_or_duplicated_location_candidates_rejected(self):
+        valid = {'city': 'Beijing', 'role': 'unspecified'}
+        candidates = [None, {}, 'Beijing', [None], [{}],
+                      [dict(valid, role=None)], [dict(valid, role='residence')],
+                      [dict(valid, role=True)], [dict(valid, city=None)],
+                      [dict(valid, city='')], [dict(valid, city=42)],
+                      [dict(valid, country='China')], [valid, valid],
+                      [valid, {'city': ' beijing ', 'role': 'unspecified'}]]
+        for value in candidates:
+            claims = deepcopy(VALID_CLAIMS)
+            claims['city'] = {'raw': 'Beijing', 'value': None, 'candidates': value}
+            with self.subTest(candidates=value), self.assertRaises(ValueError):
+                ClaimValidator().validate(claims)
+
+    def test_contradictory_current_city_representations_rejected(self):
+        for value, candidates in (
+            ('Hong Kong', [{'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]),
+            ('Hong Kong', [{'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'hometown'}]),
+            ('Beijing', []), (None, [{'city': 'Beijing', 'role': 'current'}]),
+            ('Beijing', [{'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'current'}]),
+            ('', []),
+        ):
+            claims = deepcopy(VALID_CLAIMS)
+            claims['city'] = {'raw': 'Beijing | Hong Kong', 'value': value, 'candidates': candidates}
+            with self.subTest(value=value, candidates=candidates), self.assertRaises(ValueError):
+                ClaimValidator().validate(claims)
+        claims = deepcopy(VALID_CLAIMS)
+        claims['city'] = {'raw': None, 'value': 'Beijing', 'candidates': [{'city': 'Beijing', 'role': 'current'}]}
+        with self.assertRaises(ValueError):
+            ClaimValidator().validate(claims)
+
+    def test_same_city_with_distinct_supported_roles_is_not_a_duplicate(self):
+        claims = deepcopy(VALID_CLAIMS)
+        claims['city'] = {'raw': 'Lives in London; hometown London', 'value': 'London',
+                          'candidates': [{'city': 'London', 'role': 'current'}, {'city': 'London', 'role': 'hometown'}]}
+        self.assertIs(ClaimValidator().validate(claims), claims)
+
     def test_valid_claims_returned_unchanged_without_mutation(self):
         claims = deepcopy(VALID_CLAIMS)
         self.assertIs(ClaimValidator().validate(claims), claims)
@@ -90,7 +145,7 @@ class ClaimValidatorTests(unittest.TestCase):
         for field, value in claims.items():
             item = value[0] if isinstance(value, list) else value
             for key in item:
-                if (field, key) != ('name', 'value'):
+                if (field, key) != ('name', 'value') and not isinstance(item[key], list):
                     item[key] = None
         self.assertIs(ClaimValidator().validate(claims), claims)
 
