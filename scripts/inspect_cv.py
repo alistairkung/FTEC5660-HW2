@@ -43,12 +43,14 @@ def _timed_async(method, timings, stage, counters=None, counter=None):
 
 
 def _instrument_agent(agent, timings, counters):
+    identity = agent.identity_pipeline
     for component, method_name, stage in (
-        (agent.extractor, "extract", "CV extraction"),
-        (agent.retriever, "search", "LinkedIn search"),
-        (agent.prioritizer, "prioritize", "Prioritization"),
-        (agent.retriever, "retrieve_profiles", "Profile retrieval"),
-        (agent.identity_resolver, "resolve", "Identity resolution"),
+        (identity.extractor, "extract", "CV extraction"),
+        (identity.retriever, "search", "LinkedIn search"),
+        (identity.prioritizer, "prioritize", "Prioritization"),
+        (identity.retriever, "retrieve_profiles", "Profile retrieval"),
+        (identity.identity_resolver, "resolve", "Identity resolution"),
+        (agent.comparator, "compare", "Claim comparison"),
     ):
         setattr(component, method_name, _timed_async(
             getattr(component, method_name), timings, stage, counters,
@@ -56,7 +58,7 @@ def _instrument_agent(agent, timings, counters):
         ))
     # Each chain invokes one LLM. Count at this boundary so empty-input shortcuts
     # do not count as model calls. SDK transport retries are outside this count.
-    for component in (agent.extractor, agent.prioritizer, agent.identity_resolver):
+    for component in (identity.extractor, identity.prioritizer, identity.identity_resolver, agent.comparator):
         component._chain = _CountedInvocation(component._chain, counters, "llm_calls")
 
 
@@ -74,7 +76,7 @@ def _print_performance(timings, counters, total):
 async def inspect_cv(path: Path) -> None:
     timings = {stage: {"seconds": 0.0, "calls": 0} for stage in (
         "PDF load", "CV extraction", "LinkedIn search", "Prioritization",
-        "Profile retrieval", "Identity resolution",
+        "Profile retrieval", "Identity resolution", "Claim comparison",
     )}
     counters = dict.fromkeys(("llm_calls", "mcp_calls", "profile_lookup_attempts",
                               "identity_resolution_attempts"), 0)

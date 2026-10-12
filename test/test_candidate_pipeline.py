@@ -139,7 +139,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
     def test_build_agent_disables_retries_only_for_prioritization(self):
         model = RunnableLambda(lambda _: AIMessage(content='{}'))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=model) as factory:
-            agent = build_agent([])
+            agent = build_agent([]).identity_pipeline
         self.assertEqual(factory.call_args_list, [
             call(model='deepseek-v4-flash', timeout=60, max_retries=2),
             call(model='deepseek-v4-flash', timeout=60, max_retries=0)])
@@ -163,7 +163,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
             return AIMessage(content=json.dumps(output))
 
         with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)):
-            agent = build_agent([])
+            agent = build_agent([]).identity_pipeline
         await agent.extractor.extract('CV')
         await agent.prioritizer.prioritize(CLAIMS, [{'id': 1}])
         await agent.identity_resolver.resolve(CLAIMS, [{'id': 1}])

@@ -77,6 +77,11 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
                 result = claims
             elif system.startswith("Shortlist"):
                 result = [3, 1, 2]
+            elif system.startswith("Compare"):
+                context = json.loads(prompt.to_messages()[1].content)
+                result = [{"claim_id": reference, "cv_claim": claim, "status": "UNKNOWN",
+                           "evidence": [], "reason": "Unavailable evidence"}
+                          for reference, claim in context["claim_catalog"].items()]
             else:
                 result = {"candidate_id": 3, "reason": "Supporting evidence"}
             return AIMessage(content=json.dumps(result))
@@ -104,6 +109,6 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("performance", result)
         summary = stderr.getvalue()
         self.assertIn("LinkedIn search: 2.000s / 2 calls", summary)
-        self.assertIn("LLM invocations: 3", summary)
+        self.assertIn("LLM invocations: 4", summary)
         self.assertIn("MCP tool calls: 4", summary)
         self.assertIn("Profile lookup attempts: 2; identity-resolution attempts: 1", summary)
