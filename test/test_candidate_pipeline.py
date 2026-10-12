@@ -93,6 +93,13 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
                     retriever.search.side_effect = ValueError('failed')
                 result = await pipeline.ainvoke('CV')
                 self.assertEqual(result['errors'][0]['stage'], 'search' if stage == 'search' else 'extraction')
+                self.assertEqual(result['claims'], CLAIMS if stage == 'search' else None)
+                self.assertEqual(result['search_hits'], [])
+                self.assertEqual(result['ranked_candidate_ids'], [])
+                self.assertEqual(result['profiles'], [])
+                self.assertEqual(result['identity'], 'unresolved')
+                self.assertFalse(result['retrieval_complete'])
+                self.assertFalse(result['retrieval_sampled'])
                 prioritizer.prioritize.assert_not_awaited()
                 retriever.retrieve_profiles.assert_not_awaited()
 
