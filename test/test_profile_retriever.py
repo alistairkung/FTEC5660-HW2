@@ -87,3 +87,21 @@ class ProfileRetrieverTests(unittest.IsolatedAsyncioTestCase):
                     result = await retriever.retrieve("Person", None)
                     self.assertEqual(result["retrieval_complete"], not failed)
                     self.assertEqual(result["retrieval_sampled"], hit_count > 2)
+
+    async def test_profile_contract_failures_preserve_other_profile(self):
+        cases = [("object", []), ("integer ID", {**full_profile(1), "id": True}),
+                 ("requested ID", full_profile(99)),
+                 ("name", {**full_profile(1), "name": None})]
+        for field in ("experience", "education", "skills"):
+            cases.append((field, {**full_profile(1), field: None}))
+        for requirement, invalid_profile in cases:
+            with self.subTest(requirement=requirement):
+                retriever, _, _ = self.retriever(
+                    hits=[{"id": 1}, {"id": 2}],
+                    profile_results=[blocks(invalid_profile), blocks(full_profile(2))],
+                )
+                result = await retriever.retrieve("Person", None)
+                self.assertEqual(result["profiles"], [full_profile(2)])
+                self.assertEqual(result["errors"][0]["stage"], "profile")
+                self.assertEqual(result["errors"][0]["person_id"], 1)
+                self.assertFalse(result["retrieval_complete"])
