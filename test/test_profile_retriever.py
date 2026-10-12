@@ -2,7 +2,7 @@ import json
 import unittest
 from unittest.mock import AsyncMock, call
 
-from cv_verifier.retrieval import ProfileRetriever
+from cv_verifier.profile_retriever import ProfileRetriever
 
 
 def full_profile(person_id):
@@ -14,7 +14,7 @@ def blocks(value):
     return [{"type": "text", "text": json.dumps(value)}]
 
 
-class RetrievalTests(unittest.IsolatedAsyncioTestCase):
+class ProfileRetrieverTests(unittest.IsolatedAsyncioTestCase):
     def retriever(self, hits=None, profile_results=None):
         search = AsyncMock()
         search.name = "search_linkedin_people"

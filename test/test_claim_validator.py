@@ -1,7 +1,7 @@
 import unittest
 from copy import deepcopy
 
-from cv_verifier.validation import ClaimValidator
+from cv_verifier.claim_validator import ClaimValidator
 
 
 VALID_CLAIMS = {
@@ -16,7 +16,7 @@ VALID_CLAIMS = {
 }
 
 
-class ValidatorTests(unittest.TestCase):
+class ClaimValidatorTests(unittest.TestCase):
     def test_valid_claims_returned_unchanged_without_mutation(self):
         claims = deepcopy(VALID_CLAIMS)
         self.assertIs(ClaimValidator().validate(claims), claims)

@@ -11,22 +11,6 @@ CLAIM_SCHEMA = {
 }
 
 
-def _validate_shape(value: Any, schema: Any = CLAIM_SCHEMA, path: str = "claims") -> None:
-    """Reject malformed extraction before using it to query evidence."""
-    if isinstance(schema, dict):
-        if not isinstance(value, dict) or set(value) != set(schema):
-            raise ValueError(f"{path}: expected keys {list(schema)}")
-        for key, expected in schema.items():
-            _validate_shape(value[key], expected, f"{path}.{key}")
-    elif isinstance(schema, list):
-        if not isinstance(value, list):
-            raise ValueError(f"{path}: expected a list")
-        for index, item in enumerate(value):
-            _validate_shape(item, schema[0], f"{path}[{index}]")
-    elif value is not None and type(value) is not schema:
-        raise ValueError(f"{path}: expected {schema.__name__} or null")
-
-
 class ClaimValidator:
     """Validate extraction shape without repairing or interpreting claims.
 
@@ -38,8 +22,23 @@ class ClaimValidator:
     """
 
     def validate(self, claims: Any) -> dict[str, Any]:
-        _validate_shape(claims)
+        self._validate_shape(claims)
         name = claims["name"]["value"]
         if not name or not name.strip():
             raise ValueError("Candidate name is missing")
         return claims
+
+    def _validate_shape(self, value: Any, schema: Any = CLAIM_SCHEMA, path: str = "claims") -> None:
+        """Reject malformed extraction before using it to query evidence."""
+        if isinstance(schema, dict):
+            if not isinstance(value, dict) or set(value) != set(schema):
+                raise ValueError(f"{path}: expected keys {list(schema)}")
+            for key, expected in schema.items():
+                self._validate_shape(value[key], expected, f"{path}.{key}")
+        elif isinstance(schema, list):
+            if not isinstance(value, list):
+                raise ValueError(f"{path}: expected a list")
+            for index, item in enumerate(value):
+                self._validate_shape(item, schema[0], f"{path}[{index}]")
+        elif value is not None and type(value) is not schema:
+            raise ValueError(f"{path}: expected {schema.__name__} or null")

@@ -2,21 +2,21 @@ import unittest
 import json
 from unittest.mock import AsyncMock, Mock, patch
 
-from cv_verifier.pipeline import CandidatePipeline
-from cv_verifier.validation import ClaimValidator
-from cv_verifier.retrieval import ProfileRetriever
+from cv_verifier.candidate_pipeline import CandidatePipeline
+from cv_verifier.claim_validator import ClaimValidator
+from cv_verifier.profile_retriever import ProfileRetriever
 from hw2 import build_agent
-from cv_verifier.extraction import build_extraction_chain
+from cv_verifier.claim_extractor import ClaimExtractor
 
 
-class PipelineTests(unittest.IsolatedAsyncioTestCase):
+class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_components_compose_with_fake_model_and_mcp(self):
         from langchain_core.messages import AIMessage
         from langchain_core.runnables import RunnableLambda
 
         claims = {"name": {"raw": "Person", "value": "Person"},
                   "city": {"raw": None, "value": None}, "jobs": [], "education": [], "skills": []}
-        extractor = build_extraction_chain(RunnableLambda(
+        extractor = ClaimExtractor(RunnableLambda(
             lambda _: AIMessage(content=json.dumps(claims))))
         search = AsyncMock()
         search.name = "search_linkedin_people"
@@ -39,14 +39,14 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
         claims = {'name': {'raw': 'Person', 'value': 'Person'},
                   'city': {'raw': None, 'value': None}, 'jobs': [], 'education': [], 'skills': []}
         extractor = AsyncMock()
-        extractor.ainvoke.return_value = claims
+        extractor.extract.return_value = claims
         retriever = AsyncMock()
         retrieval = {'search_hits': [{'id': 1}], 'profiles': [], 'retrieval_complete': False,
                      'retrieval_sampled': False,
                      'errors': [{'stage': 'profile', 'person_id': 1, 'message': 'failed'}]}
         retriever.retrieve.return_value = retrieval
         result = await CandidatePipeline(extractor, ClaimValidator(), retriever).ainvoke('CV')
-        extractor.ainvoke.assert_awaited_once_with({'cv': 'CV'})
+        extractor.extract.assert_awaited_once_with('CV')
         retriever.retrieve.assert_awaited_once_with('Person', None)
         self.assertEqual(result, {'claims': claims, 'identity': 'unresolved', **retrieval})
 
@@ -56,7 +56,7 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                 extractor, retriever = AsyncMock(), AsyncMock()
                 validator = Mock()
                 if stage == 'extraction':
-                    extractor.ainvoke.side_effect = ValueError('failed')
+                    extractor.extract.side_effect = ValueError('failed')
                 else:
                     validator.validate.side_effect = ValueError('failed')
                 result = await CandidatePipeline(extractor, validator, retriever).ainvoke('CV')
@@ -66,11 +66,15 @@ class PipelineTests(unittest.IsolatedAsyncioTestCase):
                 if stage == 'extraction':
                     validator.validate.assert_not_called()
 
-    def test_build_agent_wires_real_validator_and_retriever(self):
-        with patch('hw2.build_extractor', return_value=object()) as factory:
+    def test_build_agent_constructs_model_and_injects_it_into_extractor(self):
+        from langchain_core.messages import AIMessage
+        from langchain_core.runnables import RunnableLambda
+
+        model = RunnableLambda(lambda _: AIMessage(content='{}'))
+        with patch('langchain_deepseek.ChatDeepSeek', return_value=model) as factory:
             agent = build_agent([])
-        factory.assert_called_once_with('deepseek-v4-flash')
+        factory.assert_called_once_with(model='deepseek-v4-flash', timeout=60, max_retries=2)
         self.assertIsInstance(agent, CandidatePipeline)
+        self.assertIsInstance(agent.extractor, ClaimExtractor)
         self.assertIsInstance(agent.validator, ClaimValidator)
         self.assertIsInstance(agent.retriever, ProfileRetriever)
-        self.assertIs(agent.extractor, factory.return_value)

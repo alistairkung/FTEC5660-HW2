@@ -16,7 +16,7 @@ class CandidatePipeline:
         # Both extraction and validation remain the pre-search extraction stage
         # in the inspection result, preserving the existing failure contract.
         try:
-            extracted = await self.extractor.ainvoke({"cv": cv})
+            extracted = await self.extractor.extract(cv)
             claims = self.validator.validate(extracted)
             result["claims"] = claims
         except Exception as error:

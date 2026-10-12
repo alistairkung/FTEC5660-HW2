@@ -22,21 +22,18 @@ Do not invent claims, infer missing facts, assess identity, or classify the CV.
 """
 
 
-def build_extraction_chain(model: Any) -> Any:
-    """Extract JSON claims only; validation is a separate component."""
-    from langchain_core.output_parsers import JsonOutputParser
-    from langchain_core.prompts import ChatPromptTemplate
+class ClaimExtractor:
+    """Extract parsed JSON claims using an injected LLM; do not validate them."""
 
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", EXTRACTION_PROMPT.replace("{", "{{").replace("}", "}}")),
-        ("human", "{cv}"),
-    ])
-    return prompt | model | JsonOutputParser()
+    def __init__(self, llm: Any):
+        from langchain_core.output_parsers import JsonOutputParser
+        from langchain_core.prompts import ChatPromptTemplate
 
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", EXTRACTION_PROMPT.replace("{", "{{").replace("}", "}}")),
+            ("human", "{cv}"),
+        ])
+        self._chain = prompt | llm | JsonOutputParser()
 
-def build_extractor(model_name: str) -> Any:
-    """Construct the configured model once and build its extraction chain."""
-    from langchain_deepseek import ChatDeepSeek
-
-    model = ChatDeepSeek(model=model_name, timeout=60, max_retries=2)
-    return build_extraction_chain(model)
+    async def extract(self, cv: str) -> Any:
+        return await self._chain.ainvoke({"cv": cv})
