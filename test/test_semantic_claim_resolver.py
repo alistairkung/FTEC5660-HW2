@@ -50,21 +50,29 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await resolver.resolve(claims, PROFILE, ALIGNMENTS, findings), findings)
         self.assertEqual(calls, [])
 
-    async def test_only_unknown_findings_with_full_canonical_context_and_no_excluded_fields(self):
+    async def test_only_requested_claims_with_relevant_aligned_context_and_no_excluded_fields(self):
         profile = deepcopy(PROFILE)
         profile['experience'][0]['description'] = 'Excluded job text'
         result, calls = await self.resolve({'education.0.degree': {
             'status': 'MATCH', 'evidence_paths': ['education.0.degree'], 'reason': 'MBA is equivalent'}}, profile=profile)
         self.assertEqual(len(calls), 1)
         context = json.loads(calls[0].to_messages()[1].content)
-        self.assertEqual(set(context), {'claims', 'claim_catalog', 'profile', 'alignments', 'unknown_findings'})
-        self.assertEqual([f['claim_id'] for f in context['unknown_findings']], ['education.0.degree'])
-        self.assertEqual(context['claims'], CLAIMS)
-        self.assertEqual(context['claim_catalog'], ClaimComparisonValidator().claim_catalog(CLAIMS))
-        self.assertEqual(context['alignments'], ALIGNMENTS)
-        self.assertNotIn('headline', context['profile'])
-        self.assertNotIn('hometown', context['profile'])
-        self.assertNotIn('description', context['profile']['experience'][0])
+        self.assertEqual(set(context), {'requested_claim_ids', 'claim_catalog', 'profile_evidence', 'record_context'})
+        self.assertEqual(context['requested_claim_ids'], ['education.0.degree'])
+        self.assertEqual(context['claim_catalog'], {'education.0.degree':
+            ClaimComparisonValidator().claim_catalog(CLAIMS)['education.0.degree']})
+        self.assertEqual(context['record_context'], {'education.0': {
+            'cv_record': CLAIMS['education'][0], 'profile_record': PROFILE['education'][0],
+            'alignment': ALIGNMENTS['education'][0]}})
+        self.assertEqual(context['profile_evidence']['education.0.school'], 'School A')
+        self.assertNotIn('experience', context['profile_evidence'])
+        self.assertNotIn('headline', context['profile_evidence'])
+        self.assertNotIn('hometown', context['profile_evidence'])
+        serialized = json.dumps(context)
+        for reference in ClaimComparisonValidator().claim_catalog(CLAIMS):
+            if reference != 'education.0.degree':
+                self.assertNotIn(reference, context['claim_catalog'])
+        self.assertNotIn('Excluded job text', serialized)
         finding = result['education.0.degree']
         self.assertEqual(finding['cv_claim'], context['claim_catalog']['education.0.degree'])
         self.assertEqual(finding['evidence'], [{'path': 'education.0.degree', 'value': 'MBA'}])
@@ -144,7 +152,11 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
         alignments['jobs'][0]['reason'] = 'Ambiguous record correspondence'
         result, calls = await self.resolve({}, alignments=alignments)
         self.assertTrue(all(f['status'] == 'UNKNOWN' for ref, f in result.items() if ref.startswith('jobs.0.')))
-        self.assertEqual(json.loads(calls[0].to_messages()[1].content)['alignments'], alignments)
+        context = json.loads(calls[0].to_messages()[1].content)
+        self.assertEqual(context['record_context']['jobs.0']['alignment'], alignments['jobs'][0])
+        self.assertIsNone(context['record_context']['jobs.0']['profile_record'])
+        self.assertIn('experience.0.title', context['profile_evidence'])
+        self.assertIn('experience.1.title', context['profile_evidence'])
         claims = deepcopy(CLAIMS)
         claims['jobs'][0]['company'] = 'Fabricated employer'
         result, _ = await self.resolve({'jobs.0.company': {
@@ -166,6 +178,33 @@ class SemanticClaimResolverTests(unittest.IsolatedAsyncioTestCase):
         result, _ = await self.resolve({'education.0.degree': {
             'status': 'MISMATCH', 'evidence_paths': ['education'], 'reason': 'Complete history contradicts degree'}}, profile=profile)
         self.assertEqual(result['education.0.degree']['status'], 'MISMATCH')
+
+    async def test_skill_tasks_exclude_unrelated_claims_and_alignment_context(self):
+        claims = deepcopy(CLAIMS)
+        claims['education'][0]['degree'] = 'MBA'
+        claims['skills'][0]['name'] = 'UI/UX Design'
+        profile = dict(deepcopy(PROFILE), skills=[{'name': 'UI/UX'}])
+        result, calls = await self.resolve({'skills.0.name': {
+            'status': 'MATCH', 'evidence_paths': ['skills.0.name'], 'reason': 'Skill alias'}}, claims, profile)
+        context = json.loads(calls[0].to_messages()[1].content)
+        self.assertEqual(context['requested_claim_ids'], ['skills.0.name'])
+        self.assertEqual(set(context['claim_catalog']), {'skills.0.name'})
+        self.assertEqual(context['record_context'], {})
+        self.assertEqual(context['profile_evidence'], {'skills': [{'name': 'UI/UX'}], 'skills.0.name': 'UI/UX'})
+
+    async def test_aligned_context_exposes_only_anchor_field_paths_and_full_history_for_absence(self):
+        claims = deepcopy(CLAIMS)
+        claims['education'][0]['degree'] = 'MBA'
+        claims['jobs'][0]['company'] = 'Company A alias'
+        _, calls = await self.resolve({}, claims)
+        context = json.loads(calls[0].to_messages()[1].content)
+        self.assertEqual(context['requested_claim_ids'], ['jobs.0.company'])
+        self.assertEqual(context['record_context']['jobs.0']['cv_record'], claims['jobs'][0])
+        self.assertEqual(context['record_context']['jobs.0']['profile_record'], PROFILE['experience'][1])
+        self.assertEqual(context['record_context']['jobs.0']['alignment'], ALIGNMENTS['jobs'][0])
+        self.assertEqual(context['profile_evidence']['experience'], PROFILE['experience'])
+        self.assertIn('experience.1.title', context['profile_evidence'])
+        self.assertNotIn('experience.0.title', context['profile_evidence'])
 
     async def test_employment_aliases_cannot_borrow_another_aligned_record(self):
         claims = deepcopy(CLAIMS)

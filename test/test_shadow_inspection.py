@@ -20,10 +20,10 @@ from test_record_aligner import ALIGNMENTS
 
 def semantic_resolver():
     def respond(prompt):
-        unknown = json.loads(prompt.to_messages()[1].content)['unknown_findings']
+        requested = json.loads(prompt.to_messages()[1].content)['requested_claim_ids']
         return AIMessage(content=json.dumps({'findings': [
-            {'claim_id': finding['claim_id'], 'status': 'UNKNOWN', 'evidence_paths': [],
-             'reason': 'Semantic evidence remains insufficient'} for finding in unknown]}))
+            {'claim_id': reference, 'status': 'UNKNOWN', 'evidence_paths': [],
+             'reason': 'Semantic evidence remains insufficient'} for reference in requested]}))
     return SemanticClaimResolver(RunnableLambda(respond))
 
 
@@ -43,11 +43,11 @@ class ShadowInspectionTests(unittest.IsolatedAsyncioTestCase):
         def respond(prompt, **kwargs):
             prompts.append(prompt)
             options.append(kwargs)
-            if 'unknown_findings' in json.loads(prompt.to_messages()[1].content):
+            if 'requested_claim_ids' in json.loads(prompt.to_messages()[1].content):
                 return AIMessage(content=json.dumps({'findings': [
-                    {'claim_id': f['claim_id'], 'status': 'UNKNOWN', 'evidence_paths': [],
+                    {'claim_id': reference, 'status': 'UNKNOWN', 'evidence_paths': [],
                      'reason': 'Insufficient evidence'}
-                    for f in json.loads(prompt.to_messages()[1].content)['unknown_findings']]}))
+                    for reference in json.loads(prompt.to_messages()[1].content)['requested_claim_ids']]}))
             return AIMessage(content=json.dumps(ALIGNMENTS))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)) as factory:
             aligner, verifier, resolver = inspect_batch._build_shadow_components()
