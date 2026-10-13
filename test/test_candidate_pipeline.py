@@ -137,12 +137,12 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
                 prioritizer.prioritize.assert_not_awaited()
                 retriever.retrieve_profiles.assert_not_awaited()
 
-    def test_build_agent_disables_retries_only_for_prioritization(self):
+    def test_build_agent_disables_retries_for_all_models(self):
         model = RunnableLambda(lambda _: AIMessage(content='{}'))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=model) as factory:
             agent = build_agent([]).identity_pipeline
         self.assertEqual(factory.call_args_list, [
-            call(model='deepseek-v4-flash', timeout=60, max_retries=2),
+            call(model='deepseek-v4-flash', timeout=60, max_retries=0),
             call(model='deepseek-v4-flash', timeout=60, max_retries=0)])
         self.assertIsInstance(agent.prioritizer, CandidatePrioritizer)
         self.assertIsInstance(agent.ranking_validator, CandidateRankingValidator)

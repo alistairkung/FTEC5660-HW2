@@ -77,10 +77,12 @@ from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 from cv_verifier.claim_comparator import ClaimComparator
-from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.cv_scorer import CVScorer
-from cv_verifier.cv_verifier import CVVerifier
+from cv_verifier.hybrid_cv_verifier import HybridCVVerifier
+from cv_verifier.record_aligner import RecordAligner
+from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
+from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
 
 PER_CV_TIMEOUT_SECONDS = 180
 
@@ -137,16 +139,17 @@ def build_agent(tools: list[Any]) -> Any:
     from langchain_deepseek import ChatDeepSeek
 
     inference_options = {"thinking": {"type": "disabled"}}
-    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=2).bind(extra_body=inference_options)
+    llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(extra_body=inference_options)
     ranking_llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(extra_body=inference_options)
     identity_pipeline = CandidatePipeline(
         ClaimExtractor(llm), ClaimValidator(), ProfileRetriever(tools),
         CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
-    comparison_llm = ranking_llm.bind(response_format={"type": "json_object"})
-    return CVVerifier(identity_pipeline, ClaimComparator(comparison_llm), ClaimComparisonValidator(),
-                      CVScorer(), ClaimReflector(comparison_llm))
+    verification_llm = ranking_llm.bind(response_format={"type": "json_object"})
+    return HybridCVVerifier(identity_pipeline, RecordAligner(verification_llm),
+                            DeterministicClaimVerifier(), SemanticClaimResolver(verification_llm),
+                            ClaimComparisonValidator(), CVScorer())
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:

@@ -93,29 +93,22 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                   'jobs': [], 'education': [], 'skills': []}
         profiles = {1: {'id': 1, 'name': 'Person', 'city': 'London', 'experience': [], 'education': [], 'skills': []},
                     2: {'id': 2, 'name': 'Other', 'city': 'London', 'experience': [], 'education': [], 'skills': []}}
-        compared_names = []
-        reflected_names = []
+        model_stages = []
         def respond(prompt, **options):
             expected_options = {'extra_body': {'thinking': {'type': 'disabled'}}}
-            if prompt.to_messages()[0].content.startswith(('Compare', 'Audit')):
+            if prompt.to_messages()[0].content.startswith(('Align CV', 'Resolve only')):
                 expected_options['response_format'] = {'type': 'json_object'}
             self.assertEqual(options, expected_options)
             messages = prompt.to_messages()
+            model_stages.append(messages[0].content.split()[0])
             if messages[0].content.startswith('Extract'):
                 output = claims
             elif messages[0].content.startswith('Shortlist'):
                 output = [2, 1]
             elif messages[0].content.startswith('Identify'):
                 output = {'candidate_id': 1, 'reason': 'Supporting evidence'}
-            elif messages[0].content.startswith('Audit'):
-                reflected_names.append(json.loads(messages[1].content)['profile']['name'])
-                output = {'corrections': []}
             else:
-                context = json.loads(messages[1].content)
-                compared_names.append(context['profile']['name'])
-                output = {'findings': [{'claim_id': reference, 'status': 'MATCH',
-                           'evidence_paths': [reference], 'reason': 'Equivalent'}
-                           for reference in context['claim_catalog']]}
+                raise AssertionError('Exact name/city with no records require no verification model call')
             return AIMessage(content=json.dumps(output))
         def blocks(value):
             return [{'type': 'text', 'text': json.dumps(value)}]
@@ -148,7 +141,6 @@ class ScoreCVsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(checkpoint_rows[0][0], final[0])
                 self.assertEqual(checkpoint_rows[0][1][1], '0.9000')
                 self.assertIn('checkpoint', checkpoint_rows[0][1][2])
-                self.assertEqual(compared_names, ['Person'])
-                self.assertEqual(reflected_names, ['Person'])
+                self.assertEqual(model_stages, ['Extract', 'Shortlist', 'Identify'])
             finally:
                 os.chdir(previous)

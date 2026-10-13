@@ -15,6 +15,7 @@ from hw2 import (
     MODEL_NAME, PER_CV_TIMEOUT_SECONDS, build_agent, correctness_text, cv_files, cv_text,
     load_env_file, load_mcp_tools, parse_score, read_ground_truth,
 )
+from cv_verifier.hybrid_cv_verifier import HybridCVVerifier
 
 DEFAULT_OUTPUT_DIR = Path(".venv/diagnostics")
 MAX_CONCURRENT_CVS = 3
@@ -202,8 +203,12 @@ def _capture_comparisons(agent):
                     timing["calls"] += 1
         return invoke
 
-    agent.comparator.compare = measured(agent.comparator.compare, "comparison")
-    agent.reflector.reflect = measured(agent.reflector.reflect, "reflection")
+    if isinstance(agent, HybridCVVerifier):
+        agent.aligner.align = measured(agent.aligner.align, "alignment")
+        agent.semantic_resolver.resolve = measured(agent.semantic_resolver.resolve, "semantic")
+    else:
+        agent.comparator.compare = measured(agent.comparator.compare, "comparison")
+        agent.reflector.reflect = measured(agent.reflector.reflect, "reflection")
 
 
 def _fallback_details(result, score, failure):
@@ -226,8 +231,8 @@ def _fallback_details(result, score, failure):
         stop = result.get("investigation_stop_reason")
         return {"occurred": True, "stage": "identity", "reason": f"{reason}; stop={stop}"}
     for error in errors:
-        if error.get("stage") == "comparison":
-            return {"occurred": True, "stage": "comparison", "reason": error.get("message")}
+        if error.get("stage") in ("comparison", "alignment", "deterministic", "semantic", "validation"):
+            return {"occurred": True, "stage": error["stage"], "reason": error.get("message")}
     unknown = [finding.get("claim_id") for finding in result.get("findings", [])
                if finding.get("status") == "UNKNOWN"]
     if unknown:
@@ -328,7 +333,10 @@ async def inspect_batch(folder: Path, output: Path | None = None, *, shadow: boo
 
     await asyncio.gather(*(inspect_one(path) for path in paths))
     # Complete/persist the ordinary production batch before issuing any shadow inference.
-    if shadow:
+    if shadow and isinstance(agent, HybridCVVerifier):
+        payload["shadow_skipped"] = "Comparator reference baseline unavailable in hybrid production; use evaluation.run_controlled for the retained reference."
+        _save_results(output, payload)
+    elif shadow:
         await _run_shadow(payload, output, semaphore)
     correct = sum(record["correctness"] == "correct" for record in payload["records"])
     print(f"Completed {len(records)} CVs; {correct} correct; details: {output}")

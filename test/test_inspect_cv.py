@@ -78,13 +78,11 @@ class InspectCVTests(unittest.IsolatedAsyncioTestCase):
                 result = claims
             elif system.startswith("Shortlist"):
                 result = [3, 1, 2]
-            elif system.startswith("Compare"):
+            elif system.startswith("Resolve only"):
                 context = json.loads(prompt.to_messages()[1].content)
                 result = {"findings": [{"claim_id": reference, "status": "UNKNOWN",
                            "evidence_paths": [], "reason": "Unavailable evidence"}
-                          for reference in context["claim_catalog"]]}
-            elif system.startswith("Audit"):
-                result = {"corrections": []}
+                          for reference in context["requested_claim_ids"]]}
             else:
                 result = {"candidate_id": 3, "reason": "Supporting evidence"}
             return AIMessage(content=json.dumps(result))
