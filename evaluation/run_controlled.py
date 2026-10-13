@@ -17,19 +17,23 @@ from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
 from cv_verifier.record_aligner import RecordAligner
+from cv_verifier.evidence_aligner import EvidenceAligner
 from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
 from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
 from hw2 import MODEL_NAME, PER_CV_TIMEOUT_SECONDS, THRESHOLD, load_env_file
 from scripts.inspect_batch import _save_results
 from evaluation.cases import load_cases
+from evaluation.evidence_alignment import alignment_summary
 
 _CALLS = ContextVar('controlled_evaluation_calls', default=None)
 
 
-def build_components(llm):
+def build_components(llm, *, broad_alignment=False):
     def measured(stage):
         async def invoke(prompt):
             call = {'stage': stage, 'seconds': 0.0, 'usage': None, 'output': None}
+            call['input_messages'] = [{'role': message.type, 'content': message.content}
+                                      for message in prompt.to_messages()]
             calls = _CALLS.get()
             if calls is not None:
                 calls.append(call)
@@ -46,9 +50,13 @@ def build_components(llm):
             finally:
                 call['seconds'] = time.perf_counter() - start
         return RunnableLambda(invoke)
-    return {'comparator': ClaimComparator(measured('comparison')), 'reflector': ClaimReflector(measured('reflection')),
-            'aligner': RecordAligner(measured('alignment')), 'deterministic': DeterministicClaimVerifier(),
-            'semantic': SemanticClaimResolver(measured('semantic'))}
+    aligner = EvidenceAligner(measured('alignment')) if broad_alignment else RecordAligner(measured('alignment'))
+    components = {'comparator': ClaimComparator(measured('comparison')), 'reflector': ClaimReflector(measured('reflection')),
+                  'aligner': aligner, 'deterministic': DeterministicClaimVerifier(),
+                  'semantic': SemanticClaimResolver(measured('semantic'))}
+    if broad_alignment:
+        components['record_adapter'] = aligner.validator.record_alignments
+    return components
 
 
 async def production(claims, profile, components):
@@ -60,11 +68,32 @@ async def production(claims, profile, components):
     return await verifier.ainvoke('')
 
 
+def neutral_record_reasons(alignments):
+    """Shared experiment adapter: retain indices, keep generative prose diagnostic."""
+    return {collection: [dict(deepcopy(entry), reason=(
+        'Record correspondence is unresolved; alignment establishes neither support nor contradiction.'
+        if entry['profile_index'] is None else
+        'Record correspondence references the supplied profile index; factual agreement remains unverified.'))
+        for entry in entries] for collection, entries in alignments.items()}
+
+
 async def hybrid(claims, profile, components):
-    report = {'findings': [], 'deterministic_findings': [], 'alignments': None, 'errors': [], 'score': 0.5}
+    report = {'findings': [], 'deterministic_findings': [], 'alignments': None, 'errors': [],
+              'diagnostic_errors': [], 'score': 0.5}
     stage = 'alignment'
     try:
-        report['alignments'] = await components['aligner'].align(deepcopy(claims), deepcopy(profile))
+        if 'record_adapter' in components:
+            alignment = await components['aligner'].align_with_diagnostics(deepcopy(claims), deepcopy(profile))
+            report['evidence_alignments'] = alignment['output']
+            report['alignment_validation'] = alignment['validation']
+            report['diagnostic_errors'] = [{'stage': 'alignment_diagnostic', 'kind': 'contract', **error}
+                                           for error in alignment['validation']['errors'] if error['collection'] == 'skills']
+            report['alignments'] = components['record_adapter'](report['evidence_alignments'], claims, profile)
+        else:
+            report['alignments'] = await components['aligner'].align(deepcopy(claims), deepcopy(profile))
+        if components.get('neutral_reasons'):
+            report['original_record_alignments'] = deepcopy(report['alignments'])
+            report['alignments'] = neutral_record_reasons(report['alignments'])
         stage = 'deterministic'
         findings = components['deterministic'].verify(claims, profile, report['alignments'])
         report['findings'] = findings
@@ -123,10 +152,11 @@ def grade(case, result):
             'uncertainty_correct': (result['score'] == 0.5 and not result['errors'] and not failures) if expected is None else None}
 
 
-def aggregate(records):
+def aggregate(records, *, compare_aligners=False):
     summary = {'cases': len(records), 'categories': dict(Counter(r['case']['category'] for r in records)),
                'identity': 'fixed saved identities; discovery and identity resolution not evaluated'}
-    for name in ('production', 'hybrid'):
+    names = ('record', 'evidence') if compare_aligners else ('production', 'hybrid')
+    for name in names:
         metrics = Counter({key: 0 for key in ('false_valid', 'false_discrepant', 'classification_errors_with_processing_error',
                                              'llm_calls', 'input_tokens', 'output_tokens', 'total_tokens', 'missing_token_usage_calls')})
         errors, kinds, stages = Counter(), Counter(), Counter()
@@ -144,8 +174,10 @@ def aggregate(records):
             metrics['correct_targets'] += grading['graded_targets'] - len(grading['target_failures'])
             metrics['unknown_claims'] += sum(f['status'] == 'UNKNOWN' for f in result['findings'])
             metrics['unknown_cases'] += any(f['status'] == 'UNKNOWN' for f in result['findings'])
-            metrics['fallback_cases'] += result['score'] == 0.5
+            metrics['score_half_cases'] += result['score'] == 0.5
+            metrics['fallback_cases'] += result['score'] == 0.5 and bool(result['errors'])
             metrics['processing_error_cases'] += bool(result['errors'])
+            metrics['diagnostic_error_cases'] += bool(result.get('diagnostic_errors'))
             metrics['alignment_errors'] += len(grading['alignment_errors'])
             metrics['alignment_abstentions'] += len(grading['alignment_abstentions'])
             metrics['off_anchor_citations'] += len(grading['off_anchor_citations'])
@@ -169,6 +201,9 @@ def aggregate(records):
                          'claim_accuracy': metrics['correct_claims'] / metrics['graded_claims'] if metrics['graded_claims'] else None,
                          'target_accuracy': metrics['correct_targets'] / metrics['graded_targets'] if metrics['graded_targets'] else None,
                          'error_stages': dict(errors), 'error_kinds': dict(kinds), 'call_stages': dict(stages)}
+    if compare_aligners:
+        summary['alignment'] = alignment_summary(records)
+        return summary
     summary['hybrid_fixes'] = [r['case']['id'] for r in records if r['production']['grading']['correct'] is False and r['hybrid']['grading']['correct'] is True]
     summary['hybrid_regressions'] = [r['case']['id'] for r in records if r['production']['grading']['correct'] is True and r['hybrid']['grading']['correct'] is False]
     summary['hybrid_claim_fixes'] = [r['case']['id'] for r in records if len(r['hybrid']['grading']['claim_failures']) < len(r['production']['grading']['claim_failures'])]
@@ -187,7 +222,7 @@ def _error_kind(error, calls):
     return 'contract' if error['stage'] in ('comparison', 'reflection', 'alignment', 'semantic') else 'processing'
 
 
-async def evaluate(cases, components, output):
+async def evaluate(cases, components, output, *, evidence_components=None):
     output = Path(output)
     if not output.resolve().is_relative_to(Path(__file__).with_name('results').resolve()):
         raise ValueError('Evaluation results must remain in the ignored evaluation/results directory')
@@ -197,6 +232,11 @@ async def evaluate(cases, components, output):
     payload = {'model': MODEL_NAME, 'max_concurrency': 3, 'records': [], 'complete': False,
                'thinking': 'disabled', 'json_object': True, 'max_retries': 0,
                'case_sha256': sha256(json.dumps(cases, sort_keys=True).encode()).hexdigest()}
+    compare_aligners = evidence_components is not None
+    if compare_aligners:
+        payload['experiment'] = 'record_vs_evidence_alignment; skills diagnostic; shared neutral reasons; downstream unchanged'
+        components = dict(components, neutral_reasons=True)
+        evidence_components = dict(evidence_components, neutral_reasons=True)
     _save_results(output, payload)
     results = {}
     semaphore = asyncio.Semaphore(3)
@@ -204,15 +244,16 @@ async def evaluate(cases, components, output):
         async with semaphore:
             record = {'case': deepcopy(case)}
             # Alternate order to avoid always giving one path the earlier cache position.
-            paths = [('production', production), ('hybrid', hybrid)]
+            paths = ([('record', hybrid, components), ('evidence', hybrid, evidence_components)] if compare_aligners
+                     else [('production', production, components), ('hybrid', hybrid, components)])
             if index % 2:
                 paths.reverse()
-            for name, method in paths:
+            for name, method, path_components in paths:
                 calls = []
                 token = _CALLS.set(calls)
                 path_start = time.perf_counter()
                 try:
-                    result = await asyncio.wait_for(method(deepcopy(case['claims']), deepcopy(case['profile']), components),
+                    result = await asyncio.wait_for(method(deepcopy(case['claims']), deepcopy(case['profile']), path_components),
                                                     timeout=PER_CV_TIMEOUT_SECONDS)
                 except Exception as error:
                     result = {'score': 0.5, 'findings': [], 'errors': [
@@ -226,9 +267,9 @@ async def evaluate(cases, components, output):
                                 'grading': grade(case, result)}
             results[index] = record
             payload['records'] = [results[i] for i in sorted(results)]
-            payload['summary'] = aggregate(payload['records'])
+            payload['summary'] = aggregate(payload['records'], compare_aligners=compare_aligners)
             _save_results(output, payload)
-            print(f"{case['id']}: production={record['production']['result']['score']} hybrid={record['hybrid']['result']['score']}", flush=True)
+            print(f"{case['id']}: " + ' '.join(f"{name}={record[name]['result']['score']}" for name, _, _ in paths), flush=True)
     await asyncio.gather(*(evaluate_one(index, case) for index, case in enumerate(cases)))
     payload['complete'] = True
     payload['seconds'] = time.perf_counter() - start
@@ -239,13 +280,16 @@ async def evaluate(cases, components, output):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--limit', type=int)
+    parser.add_argument('--compare-aligners', action='store_true', help='Record vs broad alignment; skill mappings are diagnostic only')
     parser.add_argument('--output', type=Path, default=Path('evaluation/results') / f'paired_{time.time_ns()}.json')
     args = parser.parse_args()
     load_env_file()
     from langchain_deepseek import ChatDeepSeek
     llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(
         extra_body={'thinking': {'type': 'disabled'}}, response_format={'type': 'json_object'})
-    payload = asyncio.run(evaluate(load_cases(args.limit), build_components(llm), args.output))
+    evidence_components = build_components(llm, broad_alignment=True) if args.compare_aligners else None
+    payload = asyncio.run(evaluate(load_cases(args.limit), build_components(llm), args.output,
+                                  evidence_components=evidence_components))
     print(json.dumps(payload['summary'], indent=2))
     print(f"RESULTS={args.output.resolve()}")
 

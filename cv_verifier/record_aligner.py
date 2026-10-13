@@ -27,12 +27,12 @@ class RecordAligner:
 
     COLLECTIONS = {"jobs": "experience", "education": "education"}
 
-    def __init__(self, llm: Any):
+    def __init__(self, llm: Any, *, prompt_text: str = ALIGNMENT_PROMPT):
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.runnables import RunnableLambda
 
         prompt = ChatPromptTemplate.from_messages([
-            ("system", ALIGNMENT_PROMPT.replace("{", "{{").replace("}", "}}")),
+            ("system", prompt_text.replace("{", "{{").replace("}", "}}")),
             ("human", "{context}"),
         ])
         self._chain = prompt | llm | RunnableLambda(self._parse_alignments)
@@ -59,7 +59,8 @@ class RecordAligner:
             self._validate_collection(output[collection], len(claims[collection]), profile_count)
         return output
 
-    def _validate_collection(self, alignments: Any, cv_count: int, profile_count: int) -> None:
+    @staticmethod
+    def _validate_collection(alignments: Any, cv_count: int, profile_count: int) -> None:
         if not isinstance(alignments, list):
             raise ValueError("Record alignments must be a list")
         seen_cv, seen_profile = set(), set()
