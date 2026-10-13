@@ -145,11 +145,80 @@ class EvidenceAlignerTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(skill=skill), self.assertRaisesRegex(ValueError, 'usable name'):
                 EvidenceAlignmentValidator().validate(EVIDENCE_ALIGNMENTS, CLAIMS, dict(PROFILE, skills=[skill]))
 
-    async def test_adapter_validates_skill_output_before_discarding_it(self):
+    async def test_adapter_validates_records_independently_of_skill_diagnostics(self):
         output = deepcopy(EVIDENCE_ALIGNMENTS)
         output['skills'][0]['profile_index'] = 99
+        before = deepcopy(output)
+        validator = EvidenceAlignmentValidator()
+        self.assertEqual(validator.record_alignments(output, CLAIMS, PROFILE), ALIGNMENTS)
+        validation = validator.inspect(output, CLAIMS, PROFILE)
+        self.assertFalse(validation['full_output_valid'])
+        self.assertTrue(validation['record_output_valid'])
+        self.assertFalse(validation['collections']['skills'])
+        self.assertEqual(output, before)
+
+    async def test_diagnostic_api_preserves_invalid_raw_skills_and_uses_one_call(self):
+        output = deepcopy(EVIDENCE_ALIGNMENTS)
+        output['skills'][0].update(status='UNMATCHED', profile_index=None)
+        aligner, calls = self.aligner(output)
+        profile = dict(PROFILE, skills=None)
+        result = await aligner.align_with_diagnostics(CLAIMS, profile)
+        self.assertEqual(result['output'], output)
+        self.assertFalse(result['validation']['full_output_valid'])
+        self.assertTrue(result['validation']['record_output_valid'])
+        self.assertEqual(result['validation']['errors'][0]['collection'], 'skills')
+        self.assertEqual(len(calls), 1)
+        with self.assertRaisesRegex(ValueError, 'AMBIGUOUS'):
+            aligner.validator.validate(result['output'], CLAIMS, profile)
+
+    def test_record_validation_rejects_coverage_indices_duplicates_and_states_independently(self):
+        for collection in ('jobs', 'education'):
+            variants = []
+            for field, value in (('cv_index', True), ('cv_index', -1), ('cv_index', 99),
+                                 ('profile_index', False), ('profile_index', 99), ('profile_index', 0.0),
+                                 ('profile_index', None), ('status', 'UNMATCHED'), ('reason', ''), ('extra', 1)):
+                output = deepcopy(EVIDENCE_ALIGNMENTS)
+                output[collection][0][field] = value
+                variants.append(output)
+            output = deepcopy(EVIDENCE_ALIGNMENTS)
+            output[collection] = []
+            variants.append(output)
+            output = deepcopy(EVIDENCE_ALIGNMENTS)
+            output[collection].append(deepcopy(output[collection][0]))
+            variants.append(output)
+            for output in variants:
+                with self.subTest(collection=collection, output=output):
+                    validator = EvidenceAlignmentValidator()
+                    validation = validator.inspect(output, CLAIMS, PROFILE)
+                    self.assertFalse(validation['record_output_valid'])
+                    self.assertFalse(validation['collections'][collection])
+                    with self.assertRaises(ValueError):
+                        validator.record_alignments(output, CLAIMS, PROFILE)
+
+    def test_missing_skill_output_is_diagnostic_but_missing_records_are_blocking(self):
+        validator = EvidenceAlignmentValidator()
+        output = deepcopy(EVIDENCE_ALIGNMENTS)
+        del output['skills']
+        self.assertFalse(validator.inspect(output, CLAIMS, PROFILE)['full_output_valid'])
+        self.assertEqual(validator.record_alignments(output, CLAIMS, PROFILE), ALIGNMENTS)
+        del output['jobs']
+        self.assertFalse(validator.inspect(output, CLAIMS, PROFILE)['record_output_valid'])
         with self.assertRaises(ValueError):
-            EvidenceAlignmentValidator().record_alignments(output, CLAIMS, PROFILE)
+            validator.record_alignments(output, CLAIMS, PROFILE)
+
+    def test_validation_reports_all_invalid_collections_and_rejects_bad_envelopes(self):
+        output = deepcopy(EVIDENCE_ALIGNMENTS)
+        for collection in output:
+            output[collection][0]['profile_index'] = 99
+        validator = EvidenceAlignmentValidator()
+        validation = validator.inspect(output, CLAIMS, PROFILE)
+        self.assertEqual({error['collection'] for error in validation['errors']}, {'jobs', 'education', 'skills'})
+        for output in (None, [], dict(EVIDENCE_ALIGNMENTS, score=0.9)):
+            validation = validator.inspect(output, CLAIMS, PROFILE)
+            self.assertFalse(validation['record_output_valid'])
+            self.assertEqual(validation['errors'][0]['collection'], 'envelope')
+            with self.assertRaises(ValueError):
+                validator.record_alignments(output, CLAIMS, PROFILE)
 
     async def test_model_failures_and_bad_json_propagate_without_retry(self):
         aligner, calls = self.aligner(RuntimeError('model unavailable'))

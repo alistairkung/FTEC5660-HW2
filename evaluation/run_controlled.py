@@ -32,6 +32,8 @@ def build_components(llm, *, broad_alignment=False):
     def measured(stage):
         async def invoke(prompt):
             call = {'stage': stage, 'seconds': 0.0, 'usage': None, 'output': None}
+            call['input_messages'] = [{'role': message.type, 'content': message.content}
+                                      for message in prompt.to_messages()]
             calls = _CALLS.get()
             if calls is not None:
                 calls.append(call)
@@ -66,14 +68,32 @@ async def production(claims, profile, components):
     return await verifier.ainvoke('')
 
 
+def neutral_record_reasons(alignments):
+    """Shared experiment adapter: retain indices, keep generative prose diagnostic."""
+    return {collection: [dict(deepcopy(entry), reason=(
+        'Record correspondence is unresolved; alignment establishes neither support nor contradiction.'
+        if entry['profile_index'] is None else
+        'Record correspondence references the supplied profile index; factual agreement remains unverified.'))
+        for entry in entries] for collection, entries in alignments.items()}
+
+
 async def hybrid(claims, profile, components):
-    report = {'findings': [], 'deterministic_findings': [], 'alignments': None, 'errors': [], 'score': 0.5}
+    report = {'findings': [], 'deterministic_findings': [], 'alignments': None, 'errors': [],
+              'diagnostic_errors': [], 'score': 0.5}
     stage = 'alignment'
     try:
-        report['alignments'] = await components['aligner'].align(deepcopy(claims), deepcopy(profile))
         if 'record_adapter' in components:
-            report['evidence_alignments'] = report['alignments']
+            alignment = await components['aligner'].align_with_diagnostics(deepcopy(claims), deepcopy(profile))
+            report['evidence_alignments'] = alignment['output']
+            report['alignment_validation'] = alignment['validation']
+            report['diagnostic_errors'] = [{'stage': 'alignment_diagnostic', 'kind': 'contract', **error}
+                                           for error in alignment['validation']['errors'] if error['collection'] == 'skills']
             report['alignments'] = components['record_adapter'](report['evidence_alignments'], claims, profile)
+        else:
+            report['alignments'] = await components['aligner'].align(deepcopy(claims), deepcopy(profile))
+        if components.get('neutral_reasons'):
+            report['original_record_alignments'] = deepcopy(report['alignments'])
+            report['alignments'] = neutral_record_reasons(report['alignments'])
         stage = 'deterministic'
         findings = components['deterministic'].verify(claims, profile, report['alignments'])
         report['findings'] = findings
@@ -154,8 +174,10 @@ def aggregate(records, *, compare_aligners=False):
             metrics['correct_targets'] += grading['graded_targets'] - len(grading['target_failures'])
             metrics['unknown_claims'] += sum(f['status'] == 'UNKNOWN' for f in result['findings'])
             metrics['unknown_cases'] += any(f['status'] == 'UNKNOWN' for f in result['findings'])
-            metrics['fallback_cases'] += result['score'] == 0.5
+            metrics['score_half_cases'] += result['score'] == 0.5
+            metrics['fallback_cases'] += result['score'] == 0.5 and bool(result['errors'])
             metrics['processing_error_cases'] += bool(result['errors'])
+            metrics['diagnostic_error_cases'] += bool(result.get('diagnostic_errors'))
             metrics['alignment_errors'] += len(grading['alignment_errors'])
             metrics['alignment_abstentions'] += len(grading['alignment_abstentions'])
             metrics['off_anchor_citations'] += len(grading['off_anchor_citations'])
@@ -212,7 +234,9 @@ async def evaluate(cases, components, output, *, evidence_components=None):
                'case_sha256': sha256(json.dumps(cases, sort_keys=True).encode()).hexdigest()}
     compare_aligners = evidence_components is not None
     if compare_aligners:
-        payload['experiment'] = 'record_vs_evidence_alignment; skills diagnostic; downstream unchanged'
+        payload['experiment'] = 'record_vs_evidence_alignment; skills diagnostic; shared neutral reasons; downstream unchanged'
+        components = dict(components, neutral_reasons=True)
+        evidence_components = dict(evidence_components, neutral_reasons=True)
     _save_results(output, payload)
     results = {}
     semaphore = asyncio.Semaphore(3)

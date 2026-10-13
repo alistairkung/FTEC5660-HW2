@@ -36,15 +36,17 @@ def grade_correspondence(case, result, *, broad):
     for collection, expected in correspondence_expectations(case).items():
         if collection == 'skills' and not broad:
             continue  # RecordAligner has no skill correspondence contract.
-        entries = {entry['cv_index']: entry for entry in actual.get(collection, [])}
+        validation = result.get('alignment_validation') if broad else None
+        rejected = validation is not None and not validation['collections'][collection]
+        entries = {} if rejected else {entry['cv_index']: entry for entry in actual.get(collection, [])}
         metrics = Counter({'graded': 0, 'correct': 0, 'uncertain_expected': 0, 'uncertain_correct': 0,
-                           'ambiguous': 0, 'unmatched': 0, 'aligned': 0, 'missing': 0,
+                           'ambiguous': 0, 'unmatched': 0, 'aligned': 0, 'missing': 0, 'rejected': 0,
                            'alias_graded': 0, 'alias_correct': 0, 'unmatched_graded': 0, 'unmatched_correct': 0})
         failures = []
         for index, (status, target) in enumerate(expected):
             entry = entries.get(index)
             if entry is None:
-                metrics['missing'] += 1
+                metrics['rejected' if rejected else 'missing'] += 1
             elif broad:
                 metrics[entry['status'].lower()] += 1
             correct = entry is not None and entry['profile_index'] == target
@@ -64,7 +66,7 @@ def grade_correspondence(case, result, *, broad):
                     metrics['alias_correct'] += correct
             if not correct:
                 failures.append({'cv_index': index, 'expected_status': status, 'expected_index': target,
-                                 'actual': entry})
+                                 'actual': entry, 'collection_rejected': rejected})
         output[collection] = {**metrics, 'failures': failures}
     return output
 
@@ -77,12 +79,18 @@ def alignment_summary(records):
         failures = []
         invalid = 0
         errors = 0
+        record_contract_errors = 0
+        diagnostic_errors = 0
         ambiguous_cases = 0
         for record in records:
             result = record[name]['result']
             alignment_errors = [error for error in result['errors'] if error['stage'] == 'alignment']
             errors += bool(alignment_errors)
-            invalid += any(error['kind'] == 'contract' for error in alignment_errors)
+            record_contract_errors += any(error['kind'] == 'contract' for error in alignment_errors)
+            validation = result.get('alignment_validation')
+            invalid += ((validation is not None and not validation['full_output_valid']) or
+                        any(error['kind'] == 'contract' for error in alignment_errors))
+            diagnostic_errors += bool(result.get('diagnostic_errors'))
             grading = grade_correspondence(record['case'], result, broad=name == 'evidence')
             ambiguous_cases += any(value['ambiguous'] for value in grading.values())
             for collection, metrics in grading.items():
@@ -93,6 +101,8 @@ def alignment_summary(records):
                                                      if values['graded'] else None}
                                          for collection, values in collections.items()},
                          'invalid_output_cases': invalid, 'alignment_error_cases': errors,
+                         'verification_blocking_alignment_cases': errors, 'diagnostic_error_cases': diagnostic_errors,
+                         'record_contract_failure_cases': record_contract_errors,
                          'invalid_output_frequency': invalid / len(records) if records else None,
                          'ambiguous_cases': ambiguous_cases if name == 'evidence' else None,
                          'ambiguous_case_frequency': ambiguous_cases / len(records) if records and name == 'evidence' else None,
