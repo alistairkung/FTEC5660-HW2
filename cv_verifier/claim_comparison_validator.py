@@ -228,6 +228,7 @@ class ClaimComparisonValidator:
         """Override only supported city judgments, never repair invalid model output."""
         self.validate(findings, claims, profile)
         findings = self.adjudicate_explicit_grades(findings, claims, profile)
+        findings = self.adjudicate_role_substitution(findings, claims, profile)
         city = profile.get("city")
         if not isinstance(city, str) or not city.strip():
             return findings
@@ -299,6 +300,71 @@ class ClaimComparisonValidator:
             }, self.claim_catalog(claims), self._evidence_catalog(self.comparison_profile(profile)))
             self._validate_employment_correction(proposed, findings, claims, profile)
             replacements[finding["claim_id"]] = proposed
+        return self.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
+
+    def adjudicate_role_substitution(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                                    profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Correct only bare Director-to-Manager MATCH on an independent, unique record.
+
+        The caller supplies the already selected identity. This directional policy
+        establishes distinct roles, not a hierarchy. Unknown mappings stay semantic;
+        employer aliases, incomplete periods and uncertain correspondence abstain.
+        """
+        self.validate(findings, claims, profile)
+        originals = {finding["claim_id"]: finding for finding in findings}
+        replacements = {}
+        experience = profile.get("experience")
+        if not isinstance(experience, list):
+            return findings
+        for job_index, job in enumerate(claims["jobs"]):
+            prefix = f"jobs.{job_index}."
+            target = originals.get(prefix + "title")
+            if (not target or target["status"] != "MATCH" or job.get("seniority")
+                    or self._title_parts(job.get("title")) != ("director", None)):
+                continue
+            company = self._city_words(job.get("company") or "")
+            if (not company or job.get("start_year") is None
+                    or type(job.get("is_current")) is not bool
+                    or (job["is_current"] and job.get("end_year") is not None)
+                    or (not job["is_current"] and job.get("end_year") is None)):
+                continue
+            period = {field: job[field] for field in ("start_year", "is_current", "end_year")}
+            # Missing facts on a potentially corresponding record cannot prove uniqueness.
+            candidates = [i for i, record in enumerate(experience)
+                          if isinstance(record, dict)
+                          and (not record.get("company")
+                               or self._city_words(record["company"]) == company)
+                          and all(record.get(field) is None or record[field] == value
+                                  for field, value in period.items())]
+            if len(candidates) != 1:
+                continue
+            index = candidates[0]
+            record = experience[index]
+            if (self._city_words(record.get("company") or "") != company
+                    or any(field not in record or record[field] != value for field, value in period.items())
+                    or self._title_parts(record.get("title")) != ("manager", None)
+                    or self._seniority(record.get("seniority")) not in (None, "senior")):
+                continue
+            fields = ("company", "start_year", "is_current") + (() if job["is_current"] else ("end_year",))
+            if any(prefix + field not in originals or originals[prefix + field]["status"] != "MATCH"
+                   or not any(e["path"] == f"experience.{index}.{field}"
+                              for e in originals[prefix + field]["evidence"]) for field in fields):
+                continue
+            records = {int(e["path"].split(".")[1]) for original in findings
+                       if original["claim_id"].startswith(prefix) for e in original["evidence"]
+                       if len(e["path"].split(".")) == 3 and e["path"].startswith("experience.")}
+            if records != {index}:
+                continue
+            paths = [f"experience.{index}.{field}" for field in ("title", *fields)]
+            if record.get("seniority") is not None:
+                paths.append(f"experience.{index}.seniority")
+            replacement = self._reconstruct_finding({
+                "claim_id": target["claim_id"], "status": "MISMATCH", "evidence_paths": paths,
+                "reason": "The independently corroborated position explicitly reports Manager, not the "
+                          "claimed Director role; senior metadata does not establish that distinct role.",
+            }, self.claim_catalog(claims), self._evidence_catalog(self.comparison_profile(profile)))
+            self._validate_employment_correction(replacement, findings, claims, profile)
+            replacements[target["claim_id"]] = replacement
         return self.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
 
     def _normalize_city(self, value: str, country: Any) -> str:
