@@ -251,3 +251,23 @@ class IsolatedEmployerIdentityTests(unittest.IsolatedAsyncioTestCase):
         decision, errors = await pipeline._resolve_identity(CLAIMS, [wrong])
         self.assertIsNone(decision['candidate_id'])
         self.assertTrue(errors)
+
+
+class ExtractionFeedbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_bounded_retry_receives_validator_feedback_and_original_cv(self):
+        from cv_verifier.claim_extractor import ClaimExtractor
+        pipeline, retriever, _ = investigation.InvestigationTests().pipeline([])
+        valid = deepcopy(pipeline.extractor.extract.return_value)
+        bad = deepcopy(valid)
+        bad['city']['value'] = None
+        messages = []
+        def respond(prompt):
+            messages.append(prompt.to_messages())
+            repaired = len(messages[-1]) == 3 and 'single current candidate' in messages[-1][-1].content
+            return AIMessage(content=json.dumps(valid if repaired else bad))
+        pipeline.extractor = ClaimExtractor(RunnableLambda(respond))
+        result = await pipeline.ainvoke('original source CV')
+        self.assertEqual(result['claims'], valid)
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[1][1].content, 'original source CV')
+        self.assertIn('ambiguity', messages[1][-1].content)

@@ -42,13 +42,21 @@ class ClaimExtractor:
 
     def __init__(self, llm: Any):
         from langchain_core.output_parsers import JsonOutputParser
-        from langchain_core.prompts import ChatPromptTemplate
+        from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
         prompt = ChatPromptTemplate.from_messages([
             ("system", EXTRACTION_PROMPT.replace("{", "{{").replace("}", "}}")),
             ("human", "{cv}"),
+            MessagesPlaceholder("validation_feedback", optional=True),
         ])
         self._chain = prompt | llm | JsonOutputParser()
 
-    async def extract(self, cv: str) -> Any:
-        return await self._chain.ainvoke({"cv": cv})
+    async def extract(self, cv: str, *, validation_feedback: str | None = None) -> Any:
+        inputs: dict[str, Any] = {"cv": cv}
+        if validation_feedback is not None:
+            inputs["validation_feedback"] = [("human",
+                "The previous extraction failed contract validation: " + validation_feedback
+                + "\nRe-extract the complete object from the original CV above. Preserve source wording "
+                  "and genuine ambiguity; do not infer a definite location merely to satisfy the schema. "
+                  "Use current only when supported and keep value consistent with candidate roles.")]
+        return await self._chain.ainvoke(inputs)

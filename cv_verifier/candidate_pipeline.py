@@ -22,13 +22,19 @@ class CandidatePipeline:
     async def ainvoke(self, cv: str) -> dict[str, Any]:
         # Both extraction and validation remain the pre-search extraction stage
         # in the inspection result, preserving the existing failure contract.
+        feedback = None
         for attempt in range(2):
+            extracted = None
             try:
-                extracted = await self.extractor.extract(cv)
+                if attempt:
+                    extracted = await self.extractor.extract(cv, validation_feedback=feedback)
+                else:
+                    extracted = await self.extractor.extract(cv)
                 claims = self.validator.validate(extracted)
                 break
             except (ValueError, TypeError) as error:
-                logging.getLogger(__name__).warning("Extraction contract attempt %s failed: %s", attempt + 1, error)
+                logging.getLogger(__name__).warning("Extraction contract attempt %s failed: %s; rejected output=%r", attempt + 1, error, extracted)
+                feedback = str(error)
                 if attempt == 1:
                     return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
             except Exception as error:
