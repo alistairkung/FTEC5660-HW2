@@ -56,6 +56,56 @@ class TitleAdjudicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn({'path': 'experience.1.is_current', 'value': True}, title['evidence'])
         ClaimComparisonValidator().validate(findings, claims, profile)
 
+    async def test_known_employer_alias_competitor_prevents_unsafe_rejection(self):
+        # In this synthetic fixture Company A Ltd is an established alias of Company A.
+        # The guard must not need an alias dictionary to avoid excluding this record.
+        claims, profile = self.inputs()
+        competitor = dict(profile['experience'][1], company='Company A Ltd', title='Director')
+        profile['experience'].append(competitor)
+        findings = await self.compare(claims, profile)
+        title = next(f for f in findings if f['claim_id'] == 'jobs.0.title')
+        self.assertEqual(title['status'], 'MATCH')
+        self.assertEqual(title['evidence'], [{'path': 'experience.1.title', 'value': 'Manager'}])
+        self.assertEqual(title['reason'], 'Injected external model judgment')
+        self.assertEqual(CVScorer().score(findings, identity_resolved=True), .9)
+
+    async def test_partial_competing_records_are_not_excluded_by_employer_spelling(self):
+        for missing in ('start_year', 'end_year', 'is_current'):
+            with self.subTest(missing=missing):
+                claims, profile = self.inputs()
+                competitor = dict(profile['experience'][1], company='Company A Ltd', title='Director')
+                competitor.pop(missing)
+                profile['experience'].append(competitor)
+                findings = await self.compare(claims, profile)
+                self.assertEqual(next(f['status'] for f in findings
+                                      if f['claim_id'] == 'jobs.0.title'), 'MATCH')
+
+    async def test_incompatible_periods_exclude_unrelated_or_aliased_competitors(self):
+        for employer in ('Unrelated Company', 'Company A Ltd', 'Company A'):
+            for changed_period in ({'start_year': 2017}, {'is_current': False}, {'end_year': 2022}):
+                with self.subTest(employer=employer, period=changed_period):
+                    claims, profile = self.inputs()
+                    competitor = dict(profile['experience'][1], company=employer, title='Director')
+                    competitor.update(changed_period)
+                    profile['experience'].append(competitor)
+                    findings = await self.compare(claims, profile)
+                    self.assertEqual(next(f['status'] for f in findings
+                                          if f['claim_id'] == 'jobs.0.title'), 'MISMATCH')
+
+    async def test_manager_base_role_contradiction_is_independent_of_metadata_grade(self):
+        for grade in ('senior', 'mid', 'junior', None):
+            for supplied in ('Manager', 'Mgr.'):
+                with self.subTest(grade=grade, supplied=supplied):
+                    claims, profile = self.inputs(supplied=supplied, grade=grade)
+                    findings = await self.compare(claims, profile)
+                    title = next(f for f in findings if f['claim_id'] == 'jobs.0.title')
+                    self.assertEqual(title['status'], 'MISMATCH')
+                    self.assertEqual(CVScorer().score(findings, identity_resolved=True), .1)
+                    self.assertIn({'path': 'experience.1.title', 'value': supplied}, title['evidence'])
+                    if grade is not None:
+                        self.assertIn({'path': 'experience.1.seniority', 'value': grade}, title['evidence'])
+                    ClaimComparisonValidator().validate(findings, claims, profile)
+
     async def test_exact_abbreviated_and_same_base_titles_are_preserved(self):
         for title, supplied, grade, expected in [
             ('Manager', 'Manager', 'senior', 'MATCH'),

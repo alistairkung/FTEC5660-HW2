@@ -308,7 +308,7 @@ class ClaimComparisonValidator:
 
         The caller supplies the already selected identity. This directional policy
         establishes distinct roles, not a hierarchy. Unknown mappings stay semantic;
-        employer aliases, incomplete periods and uncertain correspondence abstain.
+        plausible competitors, incomplete periods and uncertain correspondence abstain.
         """
         self.validate(findings, claims, profile)
         originals = {finding["claim_id"]: finding for finding in findings}
@@ -329,11 +329,10 @@ class ClaimComparisonValidator:
                     or (not job["is_current"] and job.get("end_year") is None)):
                 continue
             period = {field: job[field] for field in ("start_year", "is_current", "end_year")}
-            # Missing facts on a potentially corresponding record cannot prove uniqueness.
+            # Only explicit period contradictions exclude a possible competitor.
+            # Different employer spellings may be aliases; missing facts cannot prove uniqueness.
             candidates = [i for i, record in enumerate(experience)
                           if isinstance(record, dict)
-                          and (not record.get("company")
-                               or self._city_words(record["company"]) == company)
                           and all(record.get(field) is None or record[field] == value
                                   for field, value in period.items())]
             if len(candidates) != 1:
@@ -342,8 +341,7 @@ class ClaimComparisonValidator:
             record = experience[index]
             if (self._city_words(record.get("company") or "") != company
                     or any(field not in record or record[field] != value for field, value in period.items())
-                    or self._title_parts(record.get("title")) != ("manager", None)
-                    or self._seniority(record.get("seniority")) not in (None, "senior")):
+                    or self._title_parts(record.get("title")) != ("manager", None)):
                 continue
             fields = ("company", "start_year", "is_current") + (() if job["is_current"] else ("end_year",))
             if any(prefix + field not in originals or originals[prefix + field]["status"] != "MATCH"
@@ -361,7 +359,7 @@ class ClaimComparisonValidator:
             replacement = self._reconstruct_finding({
                 "claim_id": target["claim_id"], "status": "MISMATCH", "evidence_paths": paths,
                 "reason": "The independently corroborated position explicitly reports Manager, not the "
-                          "claimed Director role; senior metadata does not establish that distinct role.",
+                          "claimed Director role; seniority metadata does not establish that distinct role.",
             }, self.claim_catalog(claims), self._evidence_catalog(self.comparison_profile(profile)))
             self._validate_employment_correction(replacement, findings, claims, profile)
             replacements[target["claim_id"]] = replacement
