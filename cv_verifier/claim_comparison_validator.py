@@ -174,6 +174,43 @@ class ClaimComparisonValidator:
                 return True
         return False
 
+    def permitted_evidence_paths(self, profile: dict[str, Any]) -> list[str]:
+        """Expose exactly the non-null paths accepted by the evidence contract."""
+        return [path for path, value in self._evidence_catalog(self.comparison_profile(profile)).items()
+                if value is not None]
+
+    def recover_findings(self, output: Any, claims: dict[str, Any],
+                         profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Keep independently valid, unambiguous findings; fill rejected claims with UNKNOWN.
+
+        This is only a negative-result safety net after a malformed comparison, never
+        a way to produce a positive classification from incomplete model output.
+        """
+        catalog = self.claim_catalog(claims)
+        evidence = self._evidence_catalog(self.comparison_profile(profile))
+        decisions = output.get("findings", []) if isinstance(output, dict) and set(output) == {"findings"} else []
+        if not isinstance(decisions, list):
+            decisions = []
+        grouped = {reference: [] for reference in catalog}
+        for decision in decisions:
+            if isinstance(decision, dict) and isinstance(decision.get("claim_id"), str):
+                if decision["claim_id"] in grouped:
+                    grouped[decision["claim_id"]].append(decision)
+        findings = []
+        for reference, candidates in grouped.items():
+            finding = {"claim_id": reference, "cv_claim": deepcopy(catalog[reference]),
+                       "status": "UNKNOWN", "evidence": [],
+                       "reason": "Comparison output for this claim failed contract validation."}
+            if len(candidates) == 1:
+                try:
+                    proposed = self._reconstruct_finding(candidates[0], catalog, evidence)
+                    self._validate_finding(proposed, catalog, evidence, set())
+                    finding = proposed
+                except (ValueError, TypeError):
+                    pass
+            findings.append(finding)
+        return self.validate(findings, claims, profile)
+
     def reconstruct(self, output: Any, claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Resolve model decisions against canonical inputs, then validate findings."""
         if not isinstance(output, dict) or set(output) != {"findings"}:
@@ -190,6 +227,7 @@ class ClaimComparisonValidator:
                         profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Override only supported city judgments, never repair invalid model output."""
         self.validate(findings, claims, profile)
+        findings = self.adjudicate_explicit_grades(findings, claims, profile)
         city = profile.get("city")
         if not isinstance(city, str) or not city.strip():
             return findings
@@ -211,6 +249,57 @@ class ClaimComparisonValidator:
                       else finding for finding in findings]
             return self.validate(merged, claims, profile)
         return findings
+
+    def adjudicate_explicit_grades(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                                   profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Enforce explicit grade contradictions only on an independently corroborated record.
+
+        Keep the comparator's record correspondence. Require the same employer, base
+        role and all stated dates/current status; aliases or absent facts stay semantic.
+        This neither supplies missing evidence nor infers a grade from a base role.
+        """
+        replacements = {}
+        for finding in findings:
+            parts = finding["claim_id"].split(".")
+            if (finding["status"] == "MISMATCH" or len(parts) != 3
+                    or parts[0] != "jobs" or parts[2] not in ("title", "seniority")):
+                continue
+            prefix = f"jobs.{parts[1]}."
+            records = {int(e["path"].split(".")[1]) for original in findings
+                       if original["claim_id"].startswith(prefix) for e in original["evidence"]
+                       if len(e["path"].split(".")) == 3 and e["path"].startswith("experience.")}
+            if len(records) != 1:
+                continue
+            index = records.pop()
+            job, record = claims["jobs"][int(parts[1])], profile["experience"][index]
+            claim_title, title_level = self._title_parts(job.get("title"))
+            profile_title, profile_title_level = self._title_parts(record.get("title"))
+            company = self._city_words(job.get("company") or "")
+            dates = {field: job[field] for field in ("start_year", "end_year") if job.get(field) is not None}
+            def corroborates(candidate):
+                return (company and company == self._city_words(candidate.get("company") or "")
+                        and claim_title and claim_title == self._title_parts(candidate.get("title"))[0]
+                        and dates and all(candidate.get(field) == value for field, value in dates.items())
+                        and (job.get("is_current") is None or job["is_current"] == candidate.get("is_current")))
+            if [i for i, candidate in enumerate(profile["experience"]) if corroborates(candidate)] != [index]:
+                continue
+            claim_level = self._seniority(job.get("seniority"))
+            if parts[2] == "title":
+                claim_level = title_level or claim_level
+            profile_level = self._seniority(record.get("seniority")) or profile_title_level
+            if (claim_level not in ("senior", "junior", "mid")
+                    or profile_level not in ("senior", "junior", "mid") or claim_level == profile_level):
+                continue
+            paths = [f"experience.{index}.{field}" for field in ("title", "seniority", "company", *dates)
+                     if record.get(field) is not None]
+            proposed = self._reconstruct_finding({
+                "claim_id": finding["claim_id"], "status": "MISMATCH", "evidence_paths": paths,
+                "reason": f"Explicit CV grade {claim_level!r} contradicts profile grade {profile_level!r}; "
+                          "the baseline-aligned employer, base role and stated dates agree.",
+            }, self.claim_catalog(claims), self._evidence_catalog(self.comparison_profile(profile)))
+            self._validate_employment_correction(proposed, findings, claims, profile)
+            replacements[finding["claim_id"]] = proposed
+        return self.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
 
     def _normalize_city(self, value: str, country: Any) -> str:
         """Strip only an explicitly delimited qualifier matching supplied country metadata."""

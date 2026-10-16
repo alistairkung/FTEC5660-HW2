@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import Any
 
 from .claim_comparison_validator import ClaimComparisonValidator
@@ -69,7 +70,7 @@ Do not include Markdown fences, prose outside the object, or trailing commas.
 Evidence paths use name, city, experience.0.title, experience.0.seniority,
 education.0.end_year, skills.0.name, etc. Whole permitted collections may be cited
 when absence from an explicit list is relevant. Never cite excluded, invented
-or null-valued paths.
+or null-valued paths. Use only the explicit permitted_evidence_paths list.
 MATCH/MISMATCH need actual supplied evidence; UNKNOWN may have an empty evidence
 list. Do not return a CV classification, aggregate score or identity judgment.
 """
@@ -90,12 +91,35 @@ class ClaimComparator:
 
     async def compare(self, claims: dict[str, Any], profile: dict[str, Any]) -> Any:
         contract = ClaimComparisonValidator()
-        context = json.dumps({
+        payload = {
             "claims": claims, "claim_catalog": contract.claim_catalog(claims),
             "profile": contract.comparison_profile(profile),
-        }, ensure_ascii=False)
-        decisions = await self._chain.ainvoke({"context": context})
-        return contract.reconstruct(decisions, claims, profile)
+            "permitted_evidence_paths": contract.permitted_evidence_paths(profile),
+        }
+        preserved = []
+        for attempt in range(2):
+            decisions = None
+            try:
+                decisions = await self._chain.ainvoke({"context": json.dumps(payload, ensure_ascii=False)})
+                findings = contract.reconstruct(decisions, claims, profile)
+                # A malformed neighboring finding must not erase a validated discrepancy.
+                replacements = {f["claim_id"]: f for f in preserved if f["status"] == "MISMATCH"}
+                return contract.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
+            except (ValueError, TypeError) as error:
+                logging.getLogger(__name__).warning("Comparison contract attempt %s failed: %s", attempt + 1, error)
+                if attempt == 0:
+                    preserved = contract.recover_findings(decisions, claims, profile)
+                    payload["contract_feedback"] = str(error)
+                    continue
+                if any(f["status"] == "MISMATCH" for f in preserved):
+                    logging.getLogger(__name__).warning("Comparison recovery retained validated MISMATCH with unresolved claims")
+                    return contract.validate(preserved, claims, profile)
+                raise
+            except Exception:
+                if any(f["status"] == "MISMATCH" for f in preserved):
+                    logging.getLogger(__name__).warning("Comparison retry failed; retained validated MISMATCH with unresolved claims")
+                    return contract.validate(preserved, claims, profile)
+                raise
 
     def _parse_findings(self, response: Any) -> Any:
         return json.loads(response.content)
