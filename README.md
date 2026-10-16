@@ -93,7 +93,26 @@ attack the MCP server. See the homework description for the full rules.
 > to students: this is your report, see the homework description.
 
 ### Task 1
-> one paragraph describing your solution, and your results on `public_test`.
+
+```mermaid
+flowchart TD
+    PDF["CV PDF → supplied text loader"] --> Extract["ClaimExtractor → ClaimValidator"]
+    Extract --> Search["CandidatePipeline: LinkedIn discovery and prioritization"]
+    Search --> Retrieve["ProfileRetriever: bounded full-profile retrieval"]
+    Retrieve --> Identity["IdentityResolver → IdentityDecisionValidator"]
+    Identity --> Compare["ClaimComparator: semantic record matching and claim checks"]
+    Compare --> Validate["ClaimComparisonValidator: canonical evidence and contract checks"]
+    Validate --> Score["CVScorer"]
+    Score -->|"0.9 only"| Reflect["ClaimReflector: bounded positive-result audit"]
+    Reflect --> Final["Validated final score"]
+    Score -->|"0.1 or 0.5"| Final
+```
+
+**Approach.** We implemented a modular LangChain pipeline using `deepseek-v4-flash` (thinking disabled) and SocialGraph LinkedIn evidence. The extractor catalogs named, location, employment, education and skill claims; the candidate pipeline searches by name/location, prioritizes and retrieves full profiles, then validates the proposed identity. The comparator jointly aligns employment/education records semantically and judges each claim against the selected profile. Python reconstructs original claims and cited evidence, rejects missing/invalid citations, and assigns **0.1** for a supported discrepancy, **0.9** when claims are supported, or **0.5** for unresolved evidence or processing failures. A bounded reflection pass audits only preliminary positive results. The supplied runner remains unchanged; up to three CVs are processed concurrently with per-CV timeouts, isolated failures and incremental checkpoints.
+
+**Engineering journey.** We developed the verifier through small hypotheses and controlled evaluations rather than relying only on the seven public PDFs. A 25-case structured set tested invented employers, schools and skills, shifted dates, title seniority, aliases, reordered jobs and genuine uncertainty. An explicit `RecordAligner → DeterministicClaimVerifier → SemanticClaimResolver` hybrid sometimes improved individual claim judgments and reduced token use, but introduced alignment-contract failures and weaker grounded-claim coverage; a one-call joint record/comparison approach also regressed on controlled cases. We therefore retained the simpler production **joint semantic comparator with strict Python validation and conditional reflection**. Separate correspondence-injection tests reinforced the risk of treating a plausible record alignment as verified fact. We also investigated Facebook but did not add it to the final chain: its available fields and discoverability were less useful for checking dated employment and qualification claims.
+
+**Robustness and results.** Repeated end-to-end tests exposed intermittent wrong-identity selection, invalid candidate shortlists, malformed location extraction, null evidence citations and missed explicit seniority inflation. We added stable metadata-supported candidate fallback, tighter identity corroboration without increasing the eight-profile budget, one validator-guided extraction or comparison retry, preservation of independently validated discrepancies, and narrowly corroborated deterministic seniority adjudication. Strict citation checks and scoring boundaries remain in place. The final integration was exercised with the lecturer's literal `python3 hw2.py --cv-folder public_test` command in a clean environment: **10 consecutive 7/7 runs (70/70 classifications)**, with all 30 discrepant outcomes supported at **0.1** rather than accidental **0.5** fallbacks. The previous frozen reliability build also passed an independent ten-run acceptance sequence. These public-set results demonstrate repeatability on the supplied examples, not guaranteed accuracy on unseen CVs.
 
 ### Task 2
 > the attack techniques you used and why you expect them to work.
