@@ -168,21 +168,32 @@ async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
     shared by the whole class.
     """
     ### YOUR CODE HERE
+    from langchain_core.callbacks import get_usage_metadata_callback
+    import sys
+    import time
+
     semaphore = asyncio.Semaphore(3)
     scores = {}
 
     async def verify_one(name: str, text: str) -> None:
         async with semaphore:
-            try:
-                result = await asyncio.wait_for(agent.ainvoke(text), timeout=PER_CV_TIMEOUT_SECONDS)
-                score = parse_score(result.get("score"))
-                scores[name] = score if score is not None else 0.5
-            except Exception:
-                scores[name] = 0.5
+            started = time.perf_counter()
+            with get_usage_metadata_callback() as usage:
+                try:
+                    result = await asyncio.wait_for(agent.ainvoke(text), timeout=PER_CV_TIMEOUT_SECONDS)
+                    score = parse_score(result.get("score"))
+                    scores[name] = score if score is not None else 0.5
+                except Exception as error:
+                    result = {"errors": [{"stage": "processing", "message": str(error) or type(error).__name__}]}
+                    scores[name] = 0.5
+            # Expose evidence and failures in the literal CLI, including correct-negative
+            # fallbacks. Filenames and grading labels are never passed to the agent.
+            print("CV_DIAGNOSTIC " + json.dumps({"cv": name, "score": scores[name],
+                  "seconds": time.perf_counter() - started, "usage": usage.usage_metadata,
+                  "result": result}, ensure_ascii=False), file=sys.stderr, flush=True)
             try:
                 _write_checkpoint({completed: scores[completed] for completed in cvs if completed in scores})
             except Exception as error:
-                import sys
                 print(f"Checkpoint unavailable: {error}", file=sys.stderr)
 
     await asyncio.gather(*(verify_one(name, text) for name, text in cvs.items()))

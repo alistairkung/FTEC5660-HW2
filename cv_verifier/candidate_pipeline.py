@@ -1,4 +1,5 @@
 import re
+import logging
 from typing import Any
 
 
@@ -21,11 +22,17 @@ class CandidatePipeline:
     async def ainvoke(self, cv: str) -> dict[str, Any]:
         # Both extraction and validation remain the pre-search extraction stage
         # in the inspection result, preserving the existing failure contract.
-        try:
-            extracted = await self.extractor.extract(cv)
-            claims = self.validator.validate(extracted)
-        except Exception as error:
-            return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
+        for attempt in range(2):
+            try:
+                extracted = await self.extractor.extract(cv)
+                claims = self.validator.validate(extracted)
+                break
+            except (ValueError, TypeError) as error:
+                logging.getLogger(__name__).warning("Extraction contract attempt %s failed: %s", attempt + 1, error)
+                if attempt == 1:
+                    return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
+            except Exception as error:
+                return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
 
         hits, search_errors, search_succeeded, searches = await self._search_candidates(claims)
         if not search_succeeded:
@@ -212,7 +219,7 @@ class CandidatePipeline:
             return {"candidate_id": None, "reason": "No successfully retrieved profiles to examine."}, []
         try:
             proposed = await self.identity_resolver.resolve(claims, list(profiles))
-            return self.identity_validator.validate(proposed, profiles), []
+            return self.identity_validator.validate(proposed, profiles, claims), []
         except Exception as error:
             return {"candidate_id": None, "reason": "Identity decision failed; identity remains unresolved."}, [
                 {"stage": "identity", "message": str(error)},
@@ -261,7 +268,24 @@ class CandidatePipeline:
             proposed = await self.prioritizer.prioritize(claims, hits)
             shortlist = self.ranking_validator.validate(proposed, hits)
             selected_ids = set(shortlist)
-            remaining_ids = [hit["id"] for hit in hits if hit["id"] not in selected_ids]
+            remaining_ids = [hit["id"] for hit in self._fallback_order(claims, hits) if hit["id"] not in selected_ids]
             return shortlist + remaining_ids, shortlist, []
         except Exception as error:
-            return [hit["id"] for hit in hits], [], [{"stage": "prioritization", "message": str(error)}]
+            return [hit["id"] for hit in self._fallback_order(claims, hits)], [], [{"stage": "prioritization", "message": str(error)}]
+
+    def _fallback_order(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Rank returned metadata as search hints only; stable ties preserve coverage."""
+        categories = [
+            [job[field] for job in claims["jobs"] for field in ("company", "title")],
+            [entry[field] for entry in claims["education"] for field in ("school", "degree", "field")],
+            [skill["name"] for skill in claims["skills"]],
+        ]
+        wording = [[self._words(value) for value in group if isinstance(value, str)] for group in categories]
+        locations = [self._words(city) for city in self._location_filters(claims)]
+        def support(hit):
+            industry = self._words(hit.get("industry") or "")
+            industry_support = sum(any(industry in value for value in group) for group in wording) if industry.strip() else 0
+            location = self._words(hit.get("location") or "")
+            location_support = any(city in location for city in locations)
+            return industry_support, location_support
+        return sorted(hits, key=support, reverse=True)

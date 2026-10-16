@@ -174,6 +174,43 @@ class ClaimComparisonValidator:
                 return True
         return False
 
+    def permitted_evidence_paths(self, profile: dict[str, Any]) -> list[str]:
+        """Expose exactly the non-null paths accepted by the evidence contract."""
+        return [path for path, value in self._evidence_catalog(self.comparison_profile(profile)).items()
+                if value is not None]
+
+    def recover_findings(self, output: Any, claims: dict[str, Any],
+                         profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Keep independently valid, unambiguous findings; fill rejected claims with UNKNOWN.
+
+        This is only a negative-result safety net after a malformed comparison, never
+        a way to produce a positive classification from incomplete model output.
+        """
+        catalog = self.claim_catalog(claims)
+        evidence = self._evidence_catalog(self.comparison_profile(profile))
+        decisions = output.get("findings", []) if isinstance(output, dict) and set(output) == {"findings"} else []
+        if not isinstance(decisions, list):
+            decisions = []
+        grouped = {reference: [] for reference in catalog}
+        for decision in decisions:
+            if isinstance(decision, dict) and isinstance(decision.get("claim_id"), str):
+                if decision["claim_id"] in grouped:
+                    grouped[decision["claim_id"]].append(decision)
+        findings = []
+        for reference, candidates in grouped.items():
+            finding = {"claim_id": reference, "cv_claim": deepcopy(catalog[reference]),
+                       "status": "UNKNOWN", "evidence": [],
+                       "reason": "Comparison output for this claim failed contract validation."}
+            if len(candidates) == 1:
+                try:
+                    proposed = self._reconstruct_finding(candidates[0], catalog, evidence)
+                    self._validate_finding(proposed, catalog, evidence, set())
+                    finding = proposed
+                except (ValueError, TypeError):
+                    pass
+            findings.append(finding)
+        return self.validate(findings, claims, profile)
+
     def reconstruct(self, output: Any, claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Resolve model decisions against canonical inputs, then validate findings."""
         if not isinstance(output, dict) or set(output) != {"findings"}:
