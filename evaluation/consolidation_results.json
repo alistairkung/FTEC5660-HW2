@@ -916,6 +916,161 @@
           }
         }
       ]
+    },
+    {
+      "run": 3,
+      "seconds": 49.26903025060892,
+      "correct": 6,
+      "csv_rows": 7,
+      "checkpoint_count": 7,
+      "fresh_clone": true,
+      "records": [
+        {
+          "cv": "CV_1.pdf",
+          "profile_id": 6337,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 13.247302542440593,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_2.pdf",
+          "profile_id": 47,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 13.629229291342199,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_3.pdf",
+          "profile_id": null,
+          "score": 0.5,
+          "prediction": 0,
+          "negative_basis": "failure_or_unresolved",
+          "finding_counts": {},
+          "seconds": 15.44896575063467,
+          "correctness": "incorrect: expected 1, predicted 0",
+          "errors": [
+            {
+              "stage": "prioritization",
+              "message": "Candidate shortlist contains unknown IDs"
+            }
+          ],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_4.pdf",
+          "profile_id": 8235,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 17,
+            "MISMATCH": 1
+          },
+          "seconds": 12.626935708336532,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_5.pdf",
+          "profile_id": 1297,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 17,
+            "MISMATCH": 1
+          },
+          "seconds": 13.950139082968235,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": [
+              {
+                "claim_id": "jobs.1.title",
+                "cv_claim": {
+                  "value": "Senior Analyst",
+                  "raw": "Senior Analyst, Microsoft    2007 \u2013 2008"
+                },
+                "status": "MISMATCH",
+                "evidence": [
+                  {
+                    "path": "experience.1.title",
+                    "value": "Analyst"
+                  },
+                  {
+                    "path": "experience.1.seniority",
+                    "value": "junior"
+                  }
+                ],
+                "reason": "The CV explicitly claims the senior-qualified title 'Senior Analyst', but the aligned profile record is 'Analyst' with explicit seniority 'junior', which directly contradicts the claimed senior qualifier."
+              }
+            ]
+          }
+        },
+        {
+          "cv": "CV_6.pdf",
+          "profile_id": 6561,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 15.284839333966374,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_7.pdf",
+          "profile_id": 9590,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 19,
+            "MISMATCH": 1
+          },
+          "seconds": 14.756536499597132,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        }
+      ]
     }
   ],
   "deterministic_tests": {
@@ -923,5 +1078,35 @@
     "historical_evaluation": 62,
     "total": 308
   },
-  "configured_github_workflows": 0
+  "configured_github_workflows": 0,
+  "clean_clone": {
+    "commit": "5dc0c7eecce909c5ffe4425a287eefaf6c3e1dda",
+    "python": "3.14.0",
+    "installation": "uv venv plus uv pip install -r requirements.txt; fresh environment, no site-packages reuse",
+    "installed_packages": 79,
+    "compatibility_check": "uv pip check: all compatible",
+    "implementation_tests": 246,
+    "evaluation_tests": 62,
+    "aggregate_check": "passed",
+    "live_public_run": 3,
+    "status_after_checks": "",
+    "api_key": "inherited environment only; no .env copied"
+  },
+  "source_manifest": {
+    "hw2.py": "4f3387da844b4640e53b522bbc8f3b4f7be043a597aa71527da246104d9a80dc",
+    "cv_verifier/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cv_verifier/candidate_pipeline.py": "7a538667a3bbedbc7a5c32e214901334ebaae69b51fa67e5c662385bf728085e",
+    "cv_verifier/candidate_prioritizer.py": "a131d2091e00e66c77bd824eecce231d4c8b200647b6a26f5df382b17e485ff4",
+    "cv_verifier/candidate_ranking_validator.py": "c4b077b3caa6b47f93adc4167bff35d3fb1cc599ab11584ec037abcee7c19e60",
+    "cv_verifier/claim_comparator.py": "da4b0085c5c6e441db1a5a5298b2ff9ef84e34652fb6b8a9d4470eadbb034637",
+    "cv_verifier/claim_comparison_validator.py": "267feaca839ce6eccf9b1947d55d4fd1926121dc031b21f3acad907b9b909e35",
+    "cv_verifier/claim_extractor.py": "0f7ad25669c29cbf75f8ed25d0f63f5adb26f526d04c0831d0cbd605abf2cbf1",
+    "cv_verifier/claim_reflector.py": "50bd1d809bc1e50df688cd55f9adcb2806421eb9ae5ec3508fd4ced39ea9693c",
+    "cv_verifier/claim_validator.py": "32d7df4dd227c4ec5c6a78f7190ea48b56cc246c21817955c343f29db77258fc",
+    "cv_verifier/cv_scorer.py": "471a4672fcf02bc04691edaf93f7a9ef6b0beb1954676d6a418f71e1af5df235",
+    "cv_verifier/cv_verifier.py": "20a755913d67969e8eadc9c07338d2c55037e8fca8761f0b1fc311c380196f8e",
+    "cv_verifier/identity_decision_validator.py": "08d4b855b53ee64db1d828bfe3512a4cfad4c0f58f099d811d3275ce57024c5e",
+    "cv_verifier/identity_resolver.py": "d1071a8df49c40d7a4f8eac9d1ef2e36d1c284eaac143f8808d5c9f50098e0fb",
+    "cv_verifier/profile_retriever.py": "9d025a4d46f24d6552f2ab15e14f5d089104b2a510ef5f3251fd3fedc0c65ad1"
+  }
 }

@@ -128,11 +128,61 @@ No synthetic/mutated/generated PDF was included. The wrapper calls the actual
 `build_agent`, `score_cvs` and checkpoint writer. It records results without
 passing labels, filenames or expected answers into verification.
 
-Detailed public-run tables and clean-clone evidence are recorded below after
-the fresh-clone invocation. Raw public diagnostics, including selected profiles,
-findings/errors, reflection and final CSV rows, are preserved in compressed
-fixtures; [the result summary](../evaluation/consolidation_results.json) provides
-the compact per-CV view.
+### Public run 1
+
+Accuracy **6/7**, wall runtime **33.87s**, seven checkpoints and exactly seven final CSV data rows.
+
+| CV | Selected LinkedIn ID | Score | Binary | Negative basis | Per-CV seconds | Errors |
+|---|---:|---:|---:|---|---:|---|
+| CV_1.pdf | 6337 | 0.9 | 1 | — | 13.03 | none |
+| CV_2.pdf | 47 | 0.9 | 1 | — | 13.98 | reflection |
+| CV_3.pdf | 6541 | 0.9 | 1 | — | 13.25 | none |
+| CV_4.pdf | 8235 | 0.1 | 0 | MISMATCH | 15.73 | none |
+| CV_5.pdf | unresolved | 0.5 | 0 | failure_or_unresolved | 1.92 | extraction |
+| CV_6.pdf | 8715 | 0.1 | 0 | MISMATCH | 17.01 | none |
+| CV_7.pdf | 9590 | 0.5 | 0 | failure_or_unresolved | 16.99 | comparison |
+
+CV_5 failed extraction location validation. CV_7 failed comparison evidence validation. CV_2 proposed an unsupported title/seniority reflection correction; the validator rejected it and preserved 0.9. CV_6 selected profile 8715 with different employers and scored 0.1 despite its valid public label; the other runs selected 6561 and returned 0.9.
+
+### Public run 2
+
+Accuracy **7/7**, wall runtime **48.69s**, seven checkpoints and exactly seven final CSV data rows.
+
+| CV | Selected LinkedIn ID | Score | Binary | Negative basis | Per-CV seconds | Errors |
+|---|---:|---:|---:|---|---:|---|
+| CV_1.pdf | 6337 | 0.9 | 1 | — | 18.61 | none |
+| CV_2.pdf | 47 | 0.9 | 1 | — | 18.64 | none |
+| CV_3.pdf | 6541 | 0.9 | 1 | — | 17.67 | none |
+| CV_4.pdf | 8235 | 0.1 | 0 | MISMATCH | 14.59 | none |
+| CV_5.pdf | 1297 | 0.1 | 0 | MISMATCH | 16.23 | none |
+| CV_6.pdf | 6561 | 0.9 | 1 | — | 15.89 | none |
+| CV_7.pdf | unresolved | 0.5 | 0 | failure_or_unresolved | 14.96 | none |
+
+CV_7 exhausted the existing eight-profile investigation budget without resolving identity; 0.5 is a fallback, not a verified discrepancy. No processing error was recorded.
+
+### Public run 3 (fresh clone)
+
+Accuracy **6/7**, wall runtime **49.27s**, seven checkpoints and exactly seven final CSV data rows.
+
+| CV | Selected LinkedIn ID | Score | Binary | Negative basis | Per-CV seconds | Errors |
+|---|---:|---:|---:|---|---:|---|
+| CV_1.pdf | 6337 | 0.9 | 1 | — | 13.25 | none |
+| CV_2.pdf | 47 | 0.9 | 1 | — | 13.63 | none |
+| CV_3.pdf | unresolved | 0.5 | 0 | failure_or_unresolved | 15.45 | prioritization |
+| CV_4.pdf | 8235 | 0.1 | 0 | MISMATCH | 12.63 | none |
+| CV_5.pdf | 1297 | 0.1 | 0 | MISMATCH | 13.95 | none |
+| CV_6.pdf | 6561 | 0.9 | 1 | — | 15.28 | none |
+| CV_7.pdf | 9590 | 0.1 | 0 | MISMATCH | 14.76 | none |
+
+CV_3's prioritizer returned an unknown candidate ID, which the ranking validator rejected. The existing fallback order then exhausted the eight-profile investigation budget before reaching profile 6541 and returned 0.5, misclassifying a valid CV. This was one recorded prioritization contract error. CV_7 selected 9590 and established MISMATCH findings rather than receiving a fallback.
+
+Across these three runs, mean binary accuracy was **19/21 (90.48%)**. All per-CV verification times were below 180 seconds and all batches below 30 minutes. `MISMATCH` above means a validated pipeline finding against its selected profile; run 1 CV_6 shows that this alone does not guarantee correct identity. `failure_or_unresolved` denotes a 0.5 negative classification with no verified finding. There were no public UNKNOWN-only negative decisions in these runs.
+
+Raw public diagnostics, including profiles, findings/errors, reflection and final CSV rows, are preserved under `evaluation/fixtures/public_run_*.json.gz`. [The machine-readable report](../evaluation/consolidation_results.json) contains all per-CV finding counts, errors, reflection outcomes and runtimes. Ground-truth labels remain outside verification prompts.
+
+### Fresh clone
+
+A fresh `git clone --no-hardlinks` of implementation commit `5dc0c7eecce909c5ffe4425a287eefaf6c3e1dda` was installed into an empty Python 3.14 virtual environment using the unchanged requirements. All 79 installed packages passed `uv pip check`; exact observed versions are retained in [the installation record](../evaluation/clean_clone_requirements.txt). The clone passed 246 implementation tests, 62 evaluation tests, aggregate freshness and CLI import/help checks, then executed public run 3 through the supplied runner. Its worktree stayed clean. The existing key was passed only in the subprocess environment; no `.env` was copied. Subsequent delivery changes contain report data/documentation only.
 
 ## Reproduce and submit
 

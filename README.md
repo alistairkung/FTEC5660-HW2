@@ -93,6 +93,7 @@ attack the MCP server. See the homework description for the full rules.
 > to students: this is your report, see the homework description.
 
 ### Task 1
+
 The modular LangChain verifier uses `deepseek-v4-flash` with thinking disabled to
 extract CV claims, prioritize and investigate LinkedIn candidates through the
 provided SocialGraph MCP server, and resolve identity before comparing every
@@ -100,8 +101,9 @@ permitted claim semantically. Python reconstructs and validates canonical claims
 and evidence; one verified discrepancy scores 0.1, fully supported claims score
 0.9, and unresolved identity/evidence or per-CV errors score 0.5. A bounded audit
 checks eligible positive findings, while three-CV concurrency, 180-second per-CV
-timeouts and incremental checkpoints isolate failures. The first two original
-seven-PDF public runs scored 6/7 and 7/7 in 33.87s and 48.69s; some correct
+timeouts and incremental checkpoints isolate failures. Three original
+seven-PDF public runs scored 6/7, 7/7 and 6/7 in 33.87s, 48.69s and 49.27s
+(mean accuracy 90.48%), including fresh-clone execution; some correct
 negative predictions were uncertainty/failure fallbacks rather than verified
 discrepancies. The controlled 25-case runs both scored 23/23 on known binary
 labels, with grounded claim accuracy of 442/446 and 422/446. See
