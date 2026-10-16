@@ -82,6 +82,7 @@ from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
 from cv_verifier.title_equivalence_reviewer import TitleEquivalenceReviewer
+from cv_verifier.skill_equivalence_reviewer import SkillEquivalenceReviewer
 
 PER_CV_TIMEOUT_SECONDS = 180
 
@@ -148,7 +149,8 @@ def build_agent(tools: list[Any]) -> Any:
     comparison_llm = ranking_llm.bind(response_format={"type": "json_object"})
     return CVVerifier(identity_pipeline, ClaimComparator(comparison_llm), ClaimComparisonValidator(),
                       CVScorer(), ClaimReflector(comparison_llm), TitleEquivalenceReviewer(comparison_llm),
-                      cv_timeout_seconds=PER_CV_TIMEOUT_SECONDS)
+                      cv_timeout_seconds=PER_CV_TIMEOUT_SECONDS,
+                      skill_reviewer=SkillEquivalenceReviewer(comparison_llm))
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:

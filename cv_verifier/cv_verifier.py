@@ -4,13 +4,15 @@ import asyncio
 
 from .identity_decision_validator import IdentityDecisionValidator
 from .title_equivalence_reviewer import TitleInput
+from .skill_equivalence_reviewer import SkillInput
 
 
 class CVVerifier:
     """Compose identity, validated comparison and scoring for one CV."""
 
     def __init__(self, identity_pipeline: Any, comparator: Any, comparison_validator: Any,
-                 scorer: Any, reflector: Any, title_reviewer: Any = None, cv_timeout_seconds: float = 180):
+                 scorer: Any, reflector: Any, title_reviewer: Any = None, cv_timeout_seconds: float = 180,
+                 skill_reviewer: Any = None):
         self.identity_pipeline = identity_pipeline
         self.comparator = comparator
         self.comparison_validator = comparison_validator
@@ -18,6 +20,7 @@ class CVVerifier:
         self.reflector = reflector
         self.title_reviewer = title_reviewer
         self.cv_timeout_seconds = cv_timeout_seconds
+        self.skill_reviewer = skill_reviewer
 
     async def ainvoke(self, cv: str) -> dict[str, Any]:
         deadline = asyncio.get_running_loop().time() + self.cv_timeout_seconds
@@ -44,7 +47,9 @@ class CVVerifier:
             proposed = await self.comparator.compare(result["claims"], profile)
             findings = self.comparison_validator.validate(proposed, result["claims"], profile)
             result["findings"] = findings
-            result["score"] = self.scorer.score(findings, identity_resolved=True)
+            if self.skill_reviewer is not None:
+                await self._review_skills(result, profile, deadline)
+            result["score"] = self.scorer.score(result['findings'], identity_resolved=True)
         except Exception as error:
             result["errors"].append({"stage": "comparison", "message": str(error)})
         if result["score"] == 0.9:
@@ -52,6 +57,33 @@ class CVVerifier:
         if result["score"] == 0.9 and self.title_reviewer is not None:
             await self._audit_positive_titles(result, profile, deadline)
         return result
+
+    async def _review_skills(self, result: dict[str, Any], profile: dict[str, Any], deadline: float) -> None:
+        """One optional batch, <=15s; reserve 60s reflection, 60s title audit and 1s finalization."""
+        audit = result['skill_review'] = {'attempted': False, 'corrections': []}
+        try:
+            references = self.comparison_validator.eligible_skill_reviews(result['findings'], result['claims'], profile)
+            audit['eligible_claims'] = references
+            if not references:
+                return
+            remaining = min(15, deadline - asyncio.get_running_loop().time() - 121)
+            if remaining <= 0:
+                audit['skipped'] = 'Insufficient remaining CV deadline for optional skill review'
+                return
+            sources = []
+            for reference in references:
+                skill = result['claims']['skills'][int(reference.split('.')[1])]
+                sources.append(SkillInput(skill['raw'], skill['name'], deepcopy(profile.get('skills'))))
+            audit['attempted'] = True
+            decisions = await asyncio.wait_for(self.skill_reviewer.review_many(sources), timeout=remaining)
+            audit['decisions'] = decisions
+            baseline = result['findings']
+            findings = self.comparison_validator.apply_skill_reviews(
+                references, decisions, baseline, result['claims'], profile)
+            audit['corrections'] = [after for before, after in zip(baseline, findings) if before != after]
+            result['findings'] = findings
+        except Exception as error:
+            result['errors'].append({'stage': 'skill_review', 'message': str(error) or type(error).__name__})
 
     async def _audit_positive_titles(self, result: dict[str, Any], profile: dict[str, Any], deadline: float) -> None:
         """Optional semantic audit: at most one title, after reflection, inside the CV deadline."""
