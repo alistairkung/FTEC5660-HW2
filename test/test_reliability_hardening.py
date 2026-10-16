@@ -158,7 +158,7 @@ class IdentitySupportTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(11, result["attempted_candidate_ids"])
 
 
-class UnknownSeniorityReflectionTests(unittest.IsolatedAsyncioTestCase):
+class ExplicitGradeAdjudicationTests(unittest.IsolatedAsyncioTestCase):
     def verifier(self, correction_output, title='Senior Analyst', level='junior', paths=None):
         from test_claim_reflector import baseline
         from cv_verifier.claim_reflector import ClaimReflector
@@ -177,7 +177,9 @@ class UnknownSeniorityReflectionTests(unittest.IsolatedAsyncioTestCase):
         identity, comparator = AsyncMock(), AsyncMock()
         identity.ainvoke.return_value = {'identity': 'resolved', 'claims': claims, 'profiles': [profile],
             'selected_candidate_id': 12, 'identity_reason': 'Career supports identity', 'errors': []}
-        comparator.compare.return_value = findings
+        output = {'findings': [{'claim_id': f['claim_id'], 'status': f['status'],
+                  'evidence_paths': [e['path'] for e in f['evidence']], 'reason': f['reason']} for f in findings]}
+        comparator = ClaimComparator(RunnableLambda(lambda _: AIMessage(content=json.dumps(output))))
         calls = []
         async def respond(_):
             calls.append(1)
@@ -187,31 +189,51 @@ class UnknownSeniorityReflectionTests(unittest.IsolatedAsyncioTestCase):
         return CVVerifier(identity, comparator, ClaimComparisonValidator(), CVScorer(),
                           ClaimReflector(RunnableLambda(respond))), calls
 
-    async def test_grounded_unknown_explicit_grade_contradiction_reaches_existing_reflector(self):
-        output = {'corrections': [{'claim_id': 'jobs.0.title', 'status': 'MISMATCH',
-            'evidence_paths': ['experience.1.title', 'experience.1.seniority'], 'reason': 'Explicit grades conflict'}]}
-        verifier, calls = self.verifier(output)
-        result = await verifier.ainvoke('source')
-        self.assertEqual(result['score'], .1)
-        self.assertEqual(len(calls), 1)
-        self.assertFalse(result['errors'])
-
-    async def test_empty_or_failed_audit_keeps_uncertainty_and_never_promotes_to_positive(self):
-        for output in ({'corrections': []}, RuntimeError('unavailable'),
-                       {'corrections': [{'claim_id': 'jobs.0.title', 'status': 'MATCH',
-                         'evidence_paths': ['experience.1.title'], 'reason': 'unsupported promotion'}]}):
-            with self.subTest(output=str(output)):
-                verifier, calls = self.verifier(output)
+    async def test_explicit_grade_conflict_survives_both_unknown_and_incorrect_match(self):
+        for status in ('UNKNOWN', 'MATCH'):
+            with self.subTest(status=status):
+                verifier, calls = self.verifier({'corrections': []})
+                def mutate(output):
+                    next(f for f in output['findings'] if f['claim_id'] == 'jobs.0.title')['status'] = status
+                    return output
+                verifier.comparator._chain = verifier.comparator._chain | RunnableLambda(mutate)
                 result = await verifier.ainvoke('source')
-                self.assertEqual(result['score'], .5)
-                self.assertEqual(len(calls), 1)
+                self.assertEqual(result['score'], .1)
+                self.assertFalse(calls)
+                self.assertFalse(result['errors'])
 
-    async def test_missing_support_unqualified_titles_and_matching_grades_do_not_expand_audit(self):
-        for options in ({'title': 'Analyst'}, {'level': 'senior'}, {'paths': []}, {'paths': [
+    async def test_missing_support_unqualified_titles_and_matching_grades_stay_uncertain(self):
+        for options in ({'title': 'Analyst'}, {'level': 'senior'}, {'paths': [], 'level': None}, {'paths': [
                 {'path': 'experience.0.title', 'value': 'Scientist'},
                 {'path': 'experience.1.seniority', 'value': 'junior'}]}):
             with self.subTest(options=options):
                 verifier, calls = self.verifier({'corrections': []}, **options)
                 result = await verifier.ainvoke('source')
                 self.assertEqual(result['score'], .5)
-                self.assertFalse(calls)
+
+    async def test_different_employer_or_dates_prevent_automatic_grade_adjudication(self):
+        for field, value in (('company', 'Unrelated Enterprise'), ('start_year', 1999)):
+            verifier, calls = self.verifier({'corrections': []})
+            verifier.identity_pipeline.ainvoke.return_value['claims']['jobs'][0][field] = value
+            # The captured comparator output uses original canonical inputs, so update
+            # through its incoming context rather than fabricating canonical claims.
+            result = await verifier.ainvoke('source')
+            self.assertEqual(result['score'], .5)
+
+    async def test_malformed_optional_search_metadata_does_not_break_fallback(self):
+        pipeline, _, _ = investigation.InvestigationTests().pipeline([])
+        hits = [{'id': 1, 'industry': ['bad'], 'location': {'bad': True}}, {'id': 2}]
+        pipeline.prioritizer.prioritize.side_effect = ValueError('invalid ranking')
+        ranking, shortlist, errors = await pipeline._prioritize(CLAIMS, hits)
+        self.assertEqual(ranking, [1, 2])
+        self.assertFalse(shortlist)
+
+    async def test_duplicate_corresponding_records_prevent_automatic_grade_adjudication(self):
+        verifier, calls = self.verifier({'corrections': []})
+        profile = verifier.identity_pipeline.ainvoke.return_value['profiles'][0]
+        duplicate = deepcopy(profile['experience'][1])
+        duplicate['seniority'] = 'senior'
+        profile['experience'].append(duplicate)
+        result = await verifier.ainvoke('source')
+        self.assertEqual(result['score'], .5)
+        self.assertFalse(calls)

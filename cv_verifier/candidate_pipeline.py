@@ -283,9 +283,9 @@ class CandidatePipeline:
         wording = [[self._words(value) for value in group if isinstance(value, str)] for group in categories]
         locations = [self._words(city) for city in self._location_filters(claims)]
         def support(hit):
-            industry = self._words(hit.get("industry") or "")
+            industry = self._words(hit["industry"]) if isinstance(hit.get("industry"), str) else ""
             industry_support = sum(any(industry in value for value in group) for group in wording) if industry.strip() else 0
-            location = self._words(hit.get("location") or "")
+            location = self._words(hit["location"]) if isinstance(hit.get("location"), str) else ""
             location_support = any(city in location for city in locations)
             return industry_support, location_support
         return sorted(hits, key=support, reverse=True)

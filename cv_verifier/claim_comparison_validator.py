@@ -56,7 +56,7 @@ class ClaimComparisonValidator:
 
     def apply_corrections(self, output: Any, baseline: list[dict[str, Any]],
                           claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
-        """Apply sparse, grounded corrections atomically; never promote uncertainty to MATCH."""
+        """Apply sparse, grounded MATCH-to-MISMATCH corrections atomically."""
         self.validate(baseline, claims, profile)
         if not isinstance(output, dict) or set(output) != {"corrections"}:
             raise ValueError("Reflection output requires exactly a corrections envelope")
@@ -72,9 +72,8 @@ class ClaimComparisonValidator:
             self._validate_reflection_reference(reference)
             if reference in replacements:
                 raise ValueError("Duplicate reflection claim reference")
-            original = originals[reference]
-            if original["status"] != "MATCH" and reference not in self.reflectable_unknowns(baseline, claims, profile):
-                raise ValueError("Reflection may correct only MATCH or supported explicit-grade UNKNOWN findings")
+            if originals[reference]["status"] != "MATCH":
+                raise ValueError("Reflection may correct only existing MATCH findings")
             if finding["status"] != "MISMATCH":
                 raise ValueError("Reflection requires a concrete MISMATCH, not uncertainty")
             if reference.startswith("jobs."):
@@ -84,33 +83,6 @@ class ClaimComparisonValidator:
             replacements[reference] = finding
         merged = [deepcopy(replacements.get(finding["claim_id"], finding)) for finding in baseline]
         return self.validate(merged, claims, profile)
-
-    def reflectable_unknowns(self, findings: list[dict[str, Any]], claims: dict[str, Any],
-                             profile: dict[str, Any]) -> list[str]:
-        """Audit only UNKNOWN employment grades with explicit, aligned contradictions.
-
-        This selects an existing reflector call, never changes a finding or score.
-        Missing evidence, aliases, and ambiguous correspondence remain uncertainty.
-        """
-        eligible = []
-        for finding in findings:
-            parts = finding["claim_id"].split(".")
-            if (finding["status"] != "UNKNOWN" or len(parts) != 3
-                    or parts[0] != "jobs" or parts[2] not in ("title", "seniority")):
-                continue
-            try:
-                self._validate_employment_correction(finding, findings, claims, profile)
-                record_index = int(finding["evidence"][0]["path"].split(".")[1])
-                job, record = claims["jobs"][int(parts[1])], profile["experience"][record_index]
-                claim_level = self._seniority(job.get("seniority"))
-                if parts[2] == "title":
-                    claim_level = self._title_parts(job.get("title"))[1] or claim_level
-                profile_level = self._seniority(record.get("seniority")) or self._title_parts(record.get("title"))[1]
-                if claim_level and profile_level and claim_level != profile_level:
-                    eligible.append(finding["claim_id"])
-            except (ValueError, IndexError):
-                continue
-        return eligible
 
     def _validate_reflection_reference(self, reference: str) -> None:
         parts = reference.split(".")
@@ -255,6 +227,7 @@ class ClaimComparisonValidator:
                         profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Override only supported city judgments, never repair invalid model output."""
         self.validate(findings, claims, profile)
+        findings = self.adjudicate_explicit_grades(findings, claims, profile)
         city = profile.get("city")
         if not isinstance(city, str) or not city.strip():
             return findings
@@ -276,6 +249,57 @@ class ClaimComparisonValidator:
                       else finding for finding in findings]
             return self.validate(merged, claims, profile)
         return findings
+
+    def adjudicate_explicit_grades(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                                   profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Enforce explicit grade contradictions only on an independently corroborated record.
+
+        Keep the comparator's record correspondence. Require the same employer, base
+        role and all stated dates/current status; aliases or absent facts stay semantic.
+        This neither supplies missing evidence nor infers a grade from a base role.
+        """
+        replacements = {}
+        for finding in findings:
+            parts = finding["claim_id"].split(".")
+            if (finding["status"] == "MISMATCH" or len(parts) != 3
+                    or parts[0] != "jobs" or parts[2] not in ("title", "seniority")):
+                continue
+            prefix = f"jobs.{parts[1]}."
+            records = {int(e["path"].split(".")[1]) for original in findings
+                       if original["claim_id"].startswith(prefix) for e in original["evidence"]
+                       if len(e["path"].split(".")) == 3 and e["path"].startswith("experience.")}
+            if len(records) != 1:
+                continue
+            index = records.pop()
+            job, record = claims["jobs"][int(parts[1])], profile["experience"][index]
+            claim_title, title_level = self._title_parts(job.get("title"))
+            profile_title, profile_title_level = self._title_parts(record.get("title"))
+            company = self._city_words(job.get("company") or "")
+            dates = {field: job[field] for field in ("start_year", "end_year") if job.get(field) is not None}
+            def corroborates(candidate):
+                return (company and company == self._city_words(candidate.get("company") or "")
+                        and claim_title and claim_title == self._title_parts(candidate.get("title"))[0]
+                        and dates and all(candidate.get(field) == value for field, value in dates.items())
+                        and (job.get("is_current") is None or job["is_current"] == candidate.get("is_current")))
+            if [i for i, candidate in enumerate(profile["experience"]) if corroborates(candidate)] != [index]:
+                continue
+            claim_level = self._seniority(job.get("seniority"))
+            if parts[2] == "title":
+                claim_level = title_level or claim_level
+            profile_level = self._seniority(record.get("seniority")) or profile_title_level
+            if (claim_level not in ("senior", "junior", "mid")
+                    or profile_level not in ("senior", "junior", "mid") or claim_level == profile_level):
+                continue
+            paths = [f"experience.{index}.{field}" for field in ("title", "seniority", "company", *dates)
+                     if record.get(field) is not None]
+            proposed = self._reconstruct_finding({
+                "claim_id": finding["claim_id"], "status": "MISMATCH", "evidence_paths": paths,
+                "reason": f"Explicit CV grade {claim_level!r} contradicts profile grade {profile_level!r}; "
+                          "the baseline-aligned employer, base role and stated dates agree.",
+            }, self.claim_catalog(claims), self._evidence_catalog(self.comparison_profile(profile)))
+            self._validate_employment_correction(proposed, findings, claims, profile)
+            replacements[finding["claim_id"]] = proposed
+        return self.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
 
     def _normalize_city(self, value: str, country: Any) -> str:
         """Strip only an explicitly delimited qualifier matching supplied country metadata."""

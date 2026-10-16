@@ -42,23 +42,21 @@ class CVVerifier:
             result["score"] = self.scorer.score(findings, identity_resolved=True)
         except Exception as error:
             result["errors"].append({"stage": "comparison", "message": str(error)})
-        if result["score"] == 0.9 or (result["score"] == 0.5 and result["findings"]
-                and self.comparison_validator.reflectable_unknowns(result["findings"], result["claims"], profile)):
-            await self._reflect_result(result, profile)
+        if result["score"] == 0.9:
+            await self._reflect_positive_result(result, profile)
         return result
 
-    async def _reflect_result(self, result: dict[str, Any], profile: dict[str, Any]) -> None:
+    async def _reflect_positive_result(self, result: dict[str, Any], profile: dict[str, Any]) -> None:
         result["reflection"]["attempted"] = True
         baseline = result["findings"]
-        baseline_score = result["score"]
         try:
             proposed = await self.reflector.reflect(
                 deepcopy(result["claims"]), deepcopy(profile), deepcopy(baseline),
             )
             findings = self.comparison_validator.validate(proposed, result["claims"], profile)
             score = self.scorer.score(findings, identity_resolved=True)
-            if score not in (0.1, baseline_score):
-                raise ValueError("Reflection must preserve the baseline score or establish a discrepancy")
+            if score not in (0.1, 0.9):
+                raise ValueError("Reflection cannot downgrade a positive result to uncertainty")
             originals = {finding["claim_id"]: finding for finding in baseline}
             corrections = [finding for finding in findings if finding != originals[finding["claim_id"]]]
             result["findings"] = findings
