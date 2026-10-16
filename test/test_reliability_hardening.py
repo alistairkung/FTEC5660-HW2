@@ -156,3 +156,62 @@ class IdentitySupportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["selected_candidate_id"], 11)
         self.assertLessEqual(len(result["attempted_candidate_ids"]), 8)
         self.assertIn(11, result["attempted_candidate_ids"])
+
+
+class UnknownSeniorityReflectionTests(unittest.IsolatedAsyncioTestCase):
+    def verifier(self, correction_output, title='Senior Analyst', level='junior', paths=None):
+        from test_claim_reflector import baseline
+        from cv_verifier.claim_reflector import ClaimReflector
+        from cv_verifier.cv_verifier import CVVerifier
+        from cv_verifier.cv_scorer import CVScorer
+        claims, profile = deepcopy(CLAIMS), dict(deepcopy(PROFILE), id=12)
+        claims['jobs'][0]['title'] = title
+        profile['experience'][1].update(title='Analyst', seniority=level)
+        findings = baseline(claims, profile)
+        finding = next(f for f in findings if f['claim_id'] == 'jobs.0.title')
+        finding['status'] = 'UNKNOWN'
+        finding['evidence'] = [{'path': 'experience.1.title', 'value': 'Analyst'},
+                               {'path': 'experience.1.seniority', 'value': level}]
+        if paths is not None:
+            finding['evidence'] = paths
+        identity, comparator = AsyncMock(), AsyncMock()
+        identity.ainvoke.return_value = {'identity': 'resolved', 'claims': claims, 'profiles': [profile],
+            'selected_candidate_id': 12, 'identity_reason': 'Career supports identity', 'errors': []}
+        comparator.compare.return_value = findings
+        calls = []
+        async def respond(_):
+            calls.append(1)
+            if isinstance(correction_output, Exception):
+                raise correction_output
+            return AIMessage(content=json.dumps(correction_output))
+        return CVVerifier(identity, comparator, ClaimComparisonValidator(), CVScorer(),
+                          ClaimReflector(RunnableLambda(respond))), calls
+
+    async def test_grounded_unknown_explicit_grade_contradiction_reaches_existing_reflector(self):
+        output = {'corrections': [{'claim_id': 'jobs.0.title', 'status': 'MISMATCH',
+            'evidence_paths': ['experience.1.title', 'experience.1.seniority'], 'reason': 'Explicit grades conflict'}]}
+        verifier, calls = self.verifier(output)
+        result = await verifier.ainvoke('source')
+        self.assertEqual(result['score'], .1)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(result['errors'])
+
+    async def test_empty_or_failed_audit_keeps_uncertainty_and_never_promotes_to_positive(self):
+        for output in ({'corrections': []}, RuntimeError('unavailable'),
+                       {'corrections': [{'claim_id': 'jobs.0.title', 'status': 'MATCH',
+                         'evidence_paths': ['experience.1.title'], 'reason': 'unsupported promotion'}]}):
+            with self.subTest(output=str(output)):
+                verifier, calls = self.verifier(output)
+                result = await verifier.ainvoke('source')
+                self.assertEqual(result['score'], .5)
+                self.assertEqual(len(calls), 1)
+
+    async def test_missing_support_unqualified_titles_and_matching_grades_do_not_expand_audit(self):
+        for options in ({'title': 'Analyst'}, {'level': 'senior'}, {'paths': []}, {'paths': [
+                {'path': 'experience.0.title', 'value': 'Scientist'},
+                {'path': 'experience.1.seniority', 'value': 'junior'}]}):
+            with self.subTest(options=options):
+                verifier, calls = self.verifier({'corrections': []}, **options)
+                result = await verifier.ainvoke('source')
+                self.assertEqual(result['score'], .5)
+                self.assertFalse(calls)

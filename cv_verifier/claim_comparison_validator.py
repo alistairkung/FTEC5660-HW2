@@ -56,7 +56,7 @@ class ClaimComparisonValidator:
 
     def apply_corrections(self, output: Any, baseline: list[dict[str, Any]],
                           claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
-        """Apply sparse, grounded MATCH-to-MISMATCH corrections atomically."""
+        """Apply sparse, grounded corrections atomically; never promote uncertainty to MATCH."""
         self.validate(baseline, claims, profile)
         if not isinstance(output, dict) or set(output) != {"corrections"}:
             raise ValueError("Reflection output requires exactly a corrections envelope")
@@ -72,8 +72,9 @@ class ClaimComparisonValidator:
             self._validate_reflection_reference(reference)
             if reference in replacements:
                 raise ValueError("Duplicate reflection claim reference")
-            if originals[reference]["status"] != "MATCH":
-                raise ValueError("Reflection may correct only existing MATCH findings")
+            original = originals[reference]
+            if original["status"] != "MATCH" and reference not in self.reflectable_unknowns(baseline, claims, profile):
+                raise ValueError("Reflection may correct only MATCH or supported explicit-grade UNKNOWN findings")
             if finding["status"] != "MISMATCH":
                 raise ValueError("Reflection requires a concrete MISMATCH, not uncertainty")
             if reference.startswith("jobs."):
@@ -83,6 +84,33 @@ class ClaimComparisonValidator:
             replacements[reference] = finding
         merged = [deepcopy(replacements.get(finding["claim_id"], finding)) for finding in baseline]
         return self.validate(merged, claims, profile)
+
+    def reflectable_unknowns(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                             profile: dict[str, Any]) -> list[str]:
+        """Audit only UNKNOWN employment grades with explicit, aligned contradictions.
+
+        This selects an existing reflector call, never changes a finding or score.
+        Missing evidence, aliases, and ambiguous correspondence remain uncertainty.
+        """
+        eligible = []
+        for finding in findings:
+            parts = finding["claim_id"].split(".")
+            if (finding["status"] != "UNKNOWN" or len(parts) != 3
+                    or parts[0] != "jobs" or parts[2] not in ("title", "seniority")):
+                continue
+            try:
+                self._validate_employment_correction(finding, findings, claims, profile)
+                record_index = int(finding["evidence"][0]["path"].split(".")[1])
+                job, record = claims["jobs"][int(parts[1])], profile["experience"][record_index]
+                claim_level = self._seniority(job.get("seniority"))
+                if parts[2] == "title":
+                    claim_level = self._title_parts(job.get("title"))[1] or claim_level
+                profile_level = self._seniority(record.get("seniority")) or self._title_parts(record.get("title"))[1]
+                if claim_level and profile_level and claim_level != profile_level:
+                    eligible.append(finding["claim_id"])
+            except (ValueError, IndexError):
+                continue
+        return eligible
 
     def _validate_reflection_reference(self, reference: str) -> None:
         parts = reference.split(".")
