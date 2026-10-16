@@ -32,6 +32,9 @@ the wider context, not their array positions or exact wording. Then evaluate eac
 individual field. A field discrepancy must not prevent aligning its corresponding
 record when the remaining context identifies it. If alignment remains ambiguous,
 use UNKNOWN rather than choosing convenient evidence from unrelated records.
+Once a corresponding record is established, compare and cite its own fields, not
+values from other records. For absence from a complete history, cite the whole
+collection rather than unrelated indexed records.
 
 Record correspondence is not title equivalence. Matching employer, dates and other
 attributes identifies the record; verify each specific field independently.
@@ -52,7 +55,12 @@ universal hierarchy or reject on different strings alone.
 Allow legitimate semantic equivalents: Senior Manager matches Manager with seniority
 senior; Senior Scientist matches Scientist with seniority senior; MBA matches Master
 of Business Administration; BSc matches Bachelor of Science. Employer aliases and
-skill wording may also be equivalent. Fewer listed CV skills are not discrepancies.
+skill wording may also be equivalent. Match skill aliases before checking absence;
+ignore a vendor prefix when the skill is otherwise the same.
+Each claimed skill must still be present or semantically equivalent in the supplied
+profile list. A CV may
+omit profile skills, but may not add a skill with no such equivalent in a complete
+profile list: that is MISMATCH, not UNKNOWN. Cite the list establishing that absence.
 Compare explicit employment and graduation years exactly: contradictory years are
 MISMATCH. Graduation year corresponds to education.end_year. Current employment
 uses is_current; a null end_year alone is not proof of current employment.

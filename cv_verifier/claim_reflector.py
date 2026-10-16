@@ -39,6 +39,8 @@ Director. Without other supplied evidence establishing the Director title, corre
 that claim to MISMATCH using the aligned title evidence. Employer/date correspondence
 or broad managerial duties do not supply that evidence. Preserve Manager/Mgr. and
 same-base explicit qualifiers; do not extend these to a different role noun.
+An unqualified same-base title must not be corrected merely because the profile
+adds junior, mid or senior seniority; that does not add a seniority claim to the CV.
 Preserve genuinely ambiguous mappings rather than speculate; only supported
 MISMATCH corrections are allowed, never UNKNOWN corrections.
 Compare explicit employment and graduation years exactly. Graduation year corresponds

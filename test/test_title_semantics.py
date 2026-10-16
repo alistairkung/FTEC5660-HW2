@@ -52,11 +52,29 @@ class TitleSemanticsTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('Director and Manager are not automatically interchangeable', system)
         self.assertIn('genuinely ambiguous organization-specific title mappings', system)
         self.assertIn('One false date or employer does not make an otherwise supported title false.', system)
+        self.assertIn('Once a corresponding record is established', system)
         context = json.loads(captured[1].content)
         self.assertEqual(context['claims']['jobs'][0]['title'], 'Director')
         self.assertEqual(context['profile']['experience'][1]['title'], 'Manager')
         self.assertEqual(context['profile']['experience'][1]['seniority'], 'senior')
         self.assertEqual(CVScorer().score(findings, identity_resolved=True), .1)
+
+    async def test_skill_alias_matching_precedes_absence_checks(self):
+        claims, profile = self.inputs('Manager')
+        claims['skills'][0] = {'name': 'Microsoft Excel', 'raw': 'Microsoft Excel'}
+        profile['skills'] = [{'name': 'Excel'}]
+        captured = []
+
+        def respond(prompt):
+            captured.extend(prompt.to_messages())
+            return AIMessage(content=json.dumps(self.decisions(claims, 'MATCH')))
+
+        findings = await ClaimComparator(RunnableLambda(respond)).compare(claims, profile)
+        self.assertIn('Match skill aliases before checking absence', captured[0].content)
+        finding = next(f for f in findings if f['claim_id'] == 'skills.0.name')
+        self.assertEqual(finding['status'], 'MATCH')
+        self.assertEqual(finding['evidence'], [{'path': 'skills.0.name', 'value': 'Excel'}])
+        self.assertEqual(CVScorer().score(findings, identity_resolved=True), .9)
 
     def verifier(self, claims, profile, responses, reflection=None):
         profile = {**deepcopy(profile), 'id': 7}
@@ -81,6 +99,9 @@ class TitleSemanticsTests(unittest.IsolatedAsyncioTestCase):
         cases = [
             ('Director', 'Manager', 'senior', 'MISMATCH', .1),
             ('Manager', 'Manager', 'senior', 'MATCH', .9),
+            ('Manager', 'Manager', 'junior', 'MATCH', .9),
+            ('Analyst', 'Analyst', 'junior', 'MATCH', .9),
+            ('Engineer', 'Engineer', 'mid', 'MATCH', .9),
             ('Senior Manager', 'Manager', 'senior', 'MATCH', .9),
             ('Manager', 'Mgr.', 'senior', 'MATCH', .9),
             ('Director', 'Director', 'senior', 'MATCH', .9),
@@ -149,6 +170,26 @@ class TitleSemanticsTests(unittest.IsolatedAsyncioTestCase):
 
         await ClaimReflector(RunnableLambda(respond)).reflect(claims, profile, baseline)
         self.assertIn('A baseline MATCH or its rationale is not evidence of title equivalence.', captured[0].content)
+        self.assertIn('An unqualified same-base title must not be corrected', captured[0].content)
         context = json.loads(captured[1].content)
         self.assertEqual(context['claims']['jobs'][0]['title'], 'Director')
         self.assertEqual(context['profile']['experience'][1]['title'], 'Manager')
+
+    async def test_subset_skills_do_not_excuse_a_claim_absent_from_profile_evidence(self):
+        claims, profile = self.inputs('Manager')
+        claims['skills'][0] = {'name': 'Rust', 'raw': 'Rust'}
+        decisions = self.decisions(claims, 'MATCH')
+        target = next(f for f in decisions['findings'] if f['claim_id'] == 'skills.0.name')
+        target.update(status='MISMATCH', evidence_paths=['skills'], reason='Rust is absent from the complete skill list')
+        captured = []
+
+        def respond(prompt):
+            captured.extend(prompt.to_messages())
+            return AIMessage(content=json.dumps(decisions))
+
+        findings = await ClaimComparator(RunnableLambda(respond)).compare(claims, profile)
+        self.assertIn('Each claimed skill must still be present or semantically equivalent', captured[0].content)
+        finding = next(f for f in findings if f['claim_id'] == 'skills.0.name')
+        self.assertEqual(finding['status'], 'MISMATCH')
+        self.assertEqual(finding['evidence'], [{'path': 'skills', 'value': profile['skills']}])
+        self.assertEqual(CVScorer().score(findings, identity_resolved=True), .1)
