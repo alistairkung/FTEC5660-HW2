@@ -26,3 +26,9 @@ python3 -m evaluation.title_shadow.run --output evaluation/results/title-shadow/
 An existing plan cannot be overwritten. The runner freezes hashes before calls, retains every record atomically, and uses the existing environment/keys without logging credentials. All full prompts/responses and runtime artifacts stay ignored. Production-worker subprocesses import each checkout's actual components; no production class is monkeypatched or replaced. B replay timing is not network latency and its token equivalents are not newly billed usage.
 
 Do not run another public acceptance campaign for this shadow experiment. Results and integration proposals will be recorded here after the single declared run; production integration is outside scope.
+
+## Observed result
+
+The single frozen run is complete; see [the full report](REPORT.md) and [curated per-sample results](results.json). Reviewer status accuracy was 44/45 overall and 17/18 held-out, compared with 13/18 held-out for both baselines. Correct-status/applicable-principle grounding was 16/18 held-out. The missing-grade case was incorrectly accepted; the retail alias had a correct status with an inapplicable principle. Both observed substitutions were explicit teaching examples and cannot establish generalization.
+
+Recommendation: retain the existing verifier for delivery; the specialist merits more shadow testing, not a production veto. No production file or scoring path changed, and no public campaign ran. PR33 remains an unmerged source baseline, not assumed to be on main.
