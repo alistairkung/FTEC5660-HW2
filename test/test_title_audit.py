@@ -156,4 +156,3 @@ class TitleAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['score'], .9)
         self.assertEqual(events, ['comparison', 'reflection'])
         self.assertIn('deadline', result['title_review']['skipped'])
-
