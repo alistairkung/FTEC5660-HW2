@@ -54,6 +54,59 @@ class ClaimComparisonValidator:
             ] if isinstance(entries, list) else entries
         return selected
 
+    def eligible_skill_reviews(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                               profile: dict[str, Any]) -> list[str]:
+        """Audit uncertain and non-exact positive skills; preserve existing contradictions."""
+        self.validate(findings, claims, profile)
+        skills = profile.get('skills')
+        if not isinstance(skills, list):
+            return []
+        names = {s['name'].strip().casefold() for s in skills
+                 if isinstance(s.get('name'), str) and s['name'].strip()}
+        eligible = []
+        for finding in findings:
+            parts = finding['claim_id'].split('.')
+            if len(parts) != 3 or parts[0] != 'skills' or parts[2] != 'name':
+                continue
+            skill = claims['skills'][int(parts[1])]
+            if not isinstance(skill.get('raw'), str) or not skill['raw'].strip():
+                continue
+            if finding['status'] == 'MISMATCH':
+                continue
+            if (finding['status'] == 'MATCH' and isinstance(skill.get('name'), str)
+                    and skill['name'].strip().casefold() in names):
+                continue
+            eligible.append(finding['claim_id'])
+        return eligible
+
+    def apply_skill_reviews(self, references: list[str], decisions: list[dict[str, Any]],
+                            baseline: list[dict[str, Any]], claims: dict[str, Any],
+                            profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Reconstruct indexed evidence from the original profile; apply atomically."""
+        from .skill_equivalence_reviewer import SkillInput, validate_decision
+
+        eligible = self.eligible_skill_reviews(baseline, claims, profile)
+        if (not isinstance(references, list) or not isinstance(decisions, list)
+                or len(references) != len(decisions) or len(set(references)) != len(references)
+                or any(reference not in eligible for reference in references)):
+            raise ValueError('Skill reviews must cover unique eligible references')
+        catalog = self.claim_catalog(claims)
+        evidence = self._evidence_catalog(self.comparison_profile(profile))
+        replacements = {}
+        for reference, decision in zip(references, decisions):
+            skill = claims['skills'][int(reference.split('.')[1])]
+            source = SkillInput(skill['raw'], skill['name'], profile.get('skills'))
+            validate_decision(decision, source)
+            if decision['status'] == 'UNKNOWN':
+                continue
+            paths = ([f"skills.{decision['matched_skill_index']}.name"]
+                     if decision['status'] == 'MATCH' else ['skills'])
+            replacements[reference] = self._reconstruct_finding({
+                'claim_id': reference, 'status': decision['status'],
+                'reason': decision['reason'], 'evidence_paths': paths,
+            }, catalog, evidence)
+        return self.validate([deepcopy(replacements.get(f['claim_id'], f)) for f in baseline], claims, profile)
+
     def apply_corrections(self, output: Any, baseline: list[dict[str, Any]],
                           claims: dict[str, Any], profile: dict[str, Any]) -> list[dict[str, Any]]:
         """Apply sparse, grounded MATCH-to-MISMATCH corrections atomically."""
