@@ -10,14 +10,16 @@ class ProfileRetriever:
     """
 
     MAX_PROFILES = 2
+    MAX_SEARCH_RESULTS = 20
 
     def __init__(self, tools: list[Any]):
         self.tools = {tool.name: tool for tool in tools}
 
-    async def search(self, name: str, city: str | None) -> list[dict[str, Any]]:
-        blocks = await self.tools["search_linkedin_people"].ainvoke({
-            "q": name, "location": city, "limit": 20, "fuzzy": True,
-        })
+    async def search(self, name: str, city: str | None, *, industry: str | None = None) -> list[dict[str, Any]]:
+        arguments = {"q": name, "location": city, "limit": self.MAX_SEARCH_RESULTS, "fuzzy": True}
+        if industry is not None:
+            arguments["industry"] = industry
+        blocks = await self.tools["search_linkedin_people"].ainvoke(arguments)
         hits = self._decode_mcp_result(blocks)
         if not isinstance(hits, list):
             raise ValueError("Search hits must be a list")

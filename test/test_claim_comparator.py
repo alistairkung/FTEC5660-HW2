@@ -11,7 +11,8 @@ from hw2 import build_claim_comparator
 
 CLAIMS = {
     'name': {'raw': 'Example Person', 'value': 'Example Person'},
-    'city': {'raw': 'London', 'value': 'London'},
+    'city': {'raw': 'London', 'value': 'London',
+                   'candidates': [{'city': 'London', 'role': 'current'}]},
     'jobs': [
         {'raw': 'Senior Manager, Company A, 2020–Present', 'company': 'Company A',
          'title': 'Senior Manager', 'seniority': None, 'dates_raw': '2020–Present',
@@ -38,8 +39,54 @@ PROFILE = {
 
 
 class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
+    async def test_location_semantics_at_model_boundary(self):
+        header = {'raw': 'Beijing, China | Hong Kong', 'value': None, 'candidates': [
+            {'city': 'Beijing', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]}
+        explicit = {'raw': 'Current city Beijing; hometown Hong Kong', 'value': 'Beijing', 'candidates': [
+            {'city': 'Beijing', 'role': 'current'}, {'city': 'Hong Kong', 'role': 'hometown'}]}
+        cases = [
+            (header, 'Beijing', 'MATCH', 'Profile city is in the unlabelled personal location header'),
+            (header, 'Hong Kong', 'MATCH', 'Both unspecified candidates remain possible'),
+            (header, 'Jakarta', 'MISMATCH', 'Complete personal location header contains only other cities'),
+            (explicit, 'Beijing', 'MATCH', 'Explicit current city agrees'),
+            (explicit, 'Hong Kong', 'MISMATCH', 'Hometown is not an alternative current city'),
+            ({'raw': 'Meetings in Beijing and Hong Kong', 'value': None, 'candidates': []},
+             'Jakarta', 'UNKNOWN', 'Incidental mentions do not establish residence'),
+            ({'raw': 'Considering Beijing or Hong Kong among other locations', 'value': None,
+              'candidates': header['candidates']}, 'Jakarta', 'UNKNOWN', 'Not an exhaustive residence claim'),
+            ({'raw': 'Lives in Jakarta', 'value': 'Jakarta',
+              'candidates': [{'city': 'Jakarta', 'role': 'current'}]},
+             'Beijing', 'MISMATCH', 'Explicit current city contradicts profile city'),
+            ({'raw': 'NYC / New York, USA | HK / Hong Kong', 'value': None,
+              'candidates': [{'city': 'New York', 'role': 'unspecified'}, {'city': 'Hong Kong', 'role': 'unspecified'}]},
+             'New York, USA', 'MATCH', 'Legitimate city alias and country qualification'),
+            ({'raw': 'Hometown Hong Kong; previously Beijing', 'value': None,
+              'candidates': [{'city': 'Hong Kong', 'role': 'hometown'}, {'city': 'Beijing', 'role': 'previous'}]},
+             'Hong Kong', 'UNKNOWN', 'Neither candidate asserts current residence'),
+            ({'raw': 'Location unclear', 'value': None, 'candidates': []},
+             'Beijing', 'UNKNOWN', 'No parsed residence candidates'),
+            (explicit, None, 'UNKNOWN', 'Profile city is unavailable'),
+        ]
+        for location, city, status, reason in cases:
+            claims, profile = deepcopy(CLAIMS), deepcopy(PROFILE)
+            claims['city'], profile['city'] = deepcopy(location), city
+            with self.subTest(location=location, profile_city=city):
+                findings = await self.comparison(claims, profile, {'city': {
+                    'status': status, 'evidence': [] if status == 'UNKNOWN' else [{'path': 'city', 'value': city}],
+                    'reason': reason}})
+                finding = next(f for f in findings if f['claim_id'] == 'city')
+                self.assertEqual(finding['status'], status)
+                self.assertEqual(finding['cv_claim'], {'value': {
+                    'value': location['value'], 'candidates': location['candidates']}, 'raw': location['raw']})
+        self.assertIn('complete set of plausible claimed personal locations', COMPARISON_PROMPT)
+        self.assertIn('Never use hometown or previous candidates as alternative current cities', COMPARISON_PROMPT)
+
     async def comparison(self, claims, profile, chosen):
         contract = ClaimComparisonValidator()
+        if 'city' not in chosen:
+            # Non-location tests use the common London/London fixture.
+            chosen = {'city': {'status': 'MATCH', 'evidence': [{'path': 'city', 'value': 'London'}],
+                               'reason': 'The supplied cities agree'}, **chosen}
         findings = [{'claim_id': reference, 'cv_claim': claim, 'status': 'UNKNOWN',
                      'evidence': [], 'reason': 'Insufficient evidence'}
                     for reference, claim in contract.claim_catalog(claims).items()]
@@ -49,7 +96,10 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         captured = []
         def respond(prompt):
             captured.extend(prompt.to_messages())
-            return AIMessage(content=json.dumps(findings))
+            return AIMessage(content=json.dumps({'findings': [
+                {'claim_id': f['claim_id'], 'status': f['status'],
+                 'evidence_paths': [e['path'] for e in f['evidence']], 'reason': f['reason']}
+                for f in findings]}))
         output = await ClaimComparator(RunnableLambda(respond)).compare(claims, profile)
         self.assertIs(contract.validate(output, claims, profile), output)
         self.assertEqual(output, findings)
@@ -59,7 +109,26 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context['claim_catalog'], contract.claim_catalog(claims))
         self.assertNotIn('headline', context['profile'])
         self.assertNotIn('hometown', context['profile'])
+        for entry in context['profile'].get('experience') or []:
+            self.assertNotIn('description', entry)
         return output
+
+    async def test_reconstructs_numeric_and_boolean_values_from_paths_only(self):
+        profile = deepcopy(PROFILE)
+        profile['experience'][0]['description'] = 'Excluded job description'
+        findings = await self.comparison(CLAIMS, profile, {
+            'jobs.0.start_year': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.1.start_year', 'value': 2020}], 'reason': 'Same start year'},
+            'jobs.0.is_current': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.1.is_current', 'value': True}], 'reason': 'Both current'},
+            'jobs.1.is_current': {'status': 'MATCH', 'evidence': [
+                {'path': 'experience.0.is_current', 'value': False}], 'reason': 'Both ended'},
+        })
+        for reference, expected_type in (('jobs.0.start_year', int), ('jobs.0.is_current', bool),
+                                         ('jobs.1.is_current', bool)):
+            finding = next(f for f in findings if f['claim_id'] == reference)
+            self.assertIs(type(finding['cv_claim']['value']), expected_type)
+            self.assertIs(type(finding['evidence'][0]['value']), expected_type)
 
     async def test_semantic_title_and_degree_equivalences_with_reordered_records(self):
         await self.comparison(CLAIMS, PROFILE, {
@@ -166,7 +235,8 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         })
 
     async def test_strict_json_rejects_malformed_response(self):
-        for content in ('not JSON', '[{"claim_id": "name"}', '```json\n[]\n```'):
+        for content in ('not JSON', '[{"claim_id": "name"}', '```json\n[]\n```',
+                        '[]', '{"findings": []}', '{"findings": null}'):
             with self.subTest(content=content), self.assertRaises(ValueError):
                 comparator = ClaimComparator(RunnableLambda(lambda _: AIMessage(content=content)))
                 await comparator.compare(CLAIMS, PROFILE)
@@ -175,9 +245,12 @@ class ClaimComparatorTests(unittest.IsolatedAsyncioTestCase):
         options = []
         def respond(_, **kwargs):
             options.append(kwargs)
-            return AIMessage(content='[]')
+            return AIMessage(content=json.dumps({'findings': [
+                {'claim_id': ref, 'status': 'UNKNOWN', 'evidence_paths': [], 'reason': 'Unavailable'}
+                for ref in ClaimComparisonValidator().claim_catalog(CLAIMS)]}))
         with patch('langchain_deepseek.ChatDeepSeek', return_value=RunnableLambda(respond)) as factory:
             comparator = build_claim_comparator()
         factory.assert_called_once_with(model='deepseek-v4-flash', timeout=60, max_retries=0)
         await comparator.compare(CLAIMS, PROFILE)
-        self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}}}])
+        self.assertEqual(options, [{'extra_body': {'thinking': {'type': 'disabled'}},
+                                    'response_format': {'type': 'json_object'}}])

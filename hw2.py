@@ -77,6 +77,7 @@ from cv_verifier.candidate_ranking_validator import CandidateRankingValidator
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 from cv_verifier.claim_comparator import ClaimComparator
+from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
@@ -113,6 +114,7 @@ def build_claim_comparator() -> ClaimComparator:
 
     llm = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(
         extra_body={"thinking": {"type": "disabled"}},
+        response_format={"type": "json_object"},
     )
     return ClaimComparator(llm)
 
@@ -142,7 +144,9 @@ def build_agent(tools: list[Any]) -> Any:
         CandidatePrioritizer(ranking_llm), CandidateRankingValidator(),
         IdentityResolver(ranking_llm), IdentityDecisionValidator(),
     )
-    return CVVerifier(identity_pipeline, ClaimComparator(ranking_llm), ClaimComparisonValidator(), CVScorer())
+    comparison_llm = ranking_llm.bind(response_format={"type": "json_object"})
+    return CVVerifier(identity_pipeline, ClaimComparator(comparison_llm), ClaimComparisonValidator(),
+                      CVScorer(), ClaimReflector(comparison_llm))
 
 
 async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
@@ -164,21 +168,32 @@ async def score_cvs(agent: Any, cvs: dict[str, str]) -> dict[str, float | None]:
     shared by the whole class.
     """
     ### YOUR CODE HERE
+    from langchain_core.callbacks import get_usage_metadata_callback
+    import sys
+    import time
+
     semaphore = asyncio.Semaphore(3)
     scores = {}
 
     async def verify_one(name: str, text: str) -> None:
         async with semaphore:
-            try:
-                result = await asyncio.wait_for(agent.ainvoke(text), timeout=PER_CV_TIMEOUT_SECONDS)
-                score = parse_score(result.get("score"))
-                scores[name] = score if score is not None else 0.5
-            except Exception:
-                scores[name] = 0.5
+            started = time.perf_counter()
+            with get_usage_metadata_callback() as usage:
+                try:
+                    result = await asyncio.wait_for(agent.ainvoke(text), timeout=PER_CV_TIMEOUT_SECONDS)
+                    score = parse_score(result.get("score"))
+                    scores[name] = score if score is not None else 0.5
+                except Exception as error:
+                    result = {"errors": [{"stage": "processing", "message": str(error) or type(error).__name__}]}
+                    scores[name] = 0.5
+            # Expose evidence and failures in the literal CLI, including correct-negative
+            # fallbacks. Filenames and grading labels are never passed to the agent.
+            print("CV_DIAGNOSTIC " + json.dumps({"cv": name, "score": scores[name],
+                  "seconds": time.perf_counter() - started, "usage": usage.usage_metadata,
+                  "result": result}, ensure_ascii=False), file=sys.stderr, flush=True)
             try:
                 _write_checkpoint({completed: scores[completed] for completed in cvs if completed in scores})
             except Exception as error:
-                import sys
                 print(f"Checkpoint unavailable: {error}", file=sys.stderr)
 
     await asyncio.gather(*(verify_one(name, text) for name, text in cvs.items()))

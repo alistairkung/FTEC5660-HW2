@@ -13,7 +13,7 @@ from hw2 import build_agent
 from cv_verifier.identity_resolver import IdentityResolver
 from cv_verifier.identity_decision_validator import IdentityDecisionValidator
 
-CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None},
+CLAIMS = {'name': {'raw': 'Person', 'value': 'Person'}, 'city': {'raw': None, 'value': None, 'candidates': []},
           'jobs': [], 'education': [], 'skills': []}
 
 
@@ -27,6 +27,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
         extractor.extract.return_value = CLAIMS
         retriever = AsyncMock()
         retriever.MAX_PROFILES = 2
+        retriever.MAX_SEARCH_RESULTS = 20
         retriever.search.return_value = [{'id': n} for n in (1, 2, 3)] if hits is None else hits
         retriever.retrieve_profiles.return_value = ([], [{'stage': 'profile', 'message': 'failed'}])
         prioritizer = AsyncMock()
@@ -38,7 +39,7 @@ class CandidatePipelineTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_real_components_retrieve_in_ranked_order(self):
         extractor = ClaimExtractor(RunnableLambda(lambda _: AIMessage(content=json.dumps(CLAIMS))))
-        prioritizer = CandidatePrioritizer(RunnableLambda(lambda _: AIMessage(content='[3, 1, 2]')))
+        prioritizer = CandidatePrioritizer(RunnableLambda(lambda _: AIMessage(content='[3, 1]')))
         search, lookup = AsyncMock(), AsyncMock()
         search.name, lookup.name = 'search_linkedin_people', 'get_linkedin_profile'
         hits = [{'id': n} for n in (1, 2, 3)]

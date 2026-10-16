@@ -1,3 +1,5 @@
+import re
+import logging
 from typing import Any
 
 
@@ -20,44 +22,148 @@ class CandidatePipeline:
     async def ainvoke(self, cv: str) -> dict[str, Any]:
         # Both extraction and validation remain the pre-search extraction stage
         # in the inspection result, preserving the existing failure contract.
-        try:
-            extracted = await self.extractor.extract(cv)
-            claims = self.validator.validate(extracted)
-        except Exception as error:
-            return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
+        feedback = None
+        for attempt in range(2):
+            extracted = None
+            try:
+                if attempt:
+                    extracted = await self.extractor.extract(cv, validation_feedback=feedback)
+                else:
+                    extracted = await self.extractor.extract(cv)
+                claims = self.validator.validate(extracted)
+                break
+            except (ValueError, TypeError) as error:
+                logging.getLogger(__name__).warning("Extraction contract attempt %s failed: %s; rejected output=%r", attempt + 1, error, extracted)
+                feedback = str(error)
+                if attempt == 1:
+                    return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
+            except Exception as error:
+                return self._build_result(errors=[{"stage": "extraction", "message": str(error)}])
 
-        hits, search_errors, search_succeeded = await self._search_candidates(claims)
+        hits, search_errors, search_succeeded, searches = await self._search_candidates(claims)
         if not search_succeeded:
             return self._build_result(claims=claims, errors=search_errors,
-                                      broader_search=bool(claims["city"]["value"]))
-        ranking, ranking_errors = await self._prioritize(claims, hits)
+                                      discovery_searches=searches,
+                                      broader_search=bool(self._location_filters(claims)))
+        ranking, shortlist, ranking_errors = await self._prioritize(claims, hits)
         return await self._investigate(
-            claims, hits, ranking, search_errors + ranking_errors,
-            broader_search=bool(claims["city"]["value"]),
+            claims, hits, ranking, shortlist, search_errors + ranking_errors,
+            discovery_searches=searches,
+            broader_search=bool(self._location_filters(claims)),
         )
 
     async def _search_candidates(
         self, claims: dict[str, Any],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
-        city = claims["city"]["value"]
-        filters = [city, None] if city else [None]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool, list[dict[str, Any]]]:
+        filters = self._location_filters(claims) + [None]
         combined = []
         known_ids = set()
         errors = []
+        searches = []
         succeeded = False
         for location in filters:
-            try:
-                hits = await self.retriever.search(claims["name"]["value"], location)
-                combined.extend(self._new_hits(hits, known_ids))
+            scope = "city_filtered" if location else "name_only"
+            hits, error, search = await self._search_once(claims["name"]["value"], location, scope)
+            new_hits = self._new_hits(hits, known_ids)
+            combined.extend(new_hits)
+            search["new_candidate_count"] = len(new_hits)
+            searches.append(search)
+            if error is not None:
+                errors.append(error)
+            else:
                 succeeded = True
-            except Exception as error:
-                errors.append({"stage": "search", "scope": "city_filtered" if location else "name_only",
-                               "message": str(error)})
-        return combined, errors, succeeded
+
+        supplementary = self._supplementary_query(claims, combined, searches)
+        if supplementary is not None:
+            location, industry = supplementary
+            hits, error, search = await self._search_once(
+                claims["name"]["value"], location, "industry_filtered", industry,
+            )
+            new_hits = self._new_hits(hits, known_ids)
+            combined.extend(new_hits)
+            search["new_candidate_count"] = len(new_hits)
+            searches.append(search)
+            if error is not None:
+                errors.append(error)
+        return combined, errors, succeeded, searches
+
+    async def _search_once(
+        self, name: str, location: str | None, scope: str, industry: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None, dict[str, Any]]:
+        search = {"scope": scope, "location": location, "industry": industry, "returned_count": None}
+        try:
+            if industry is None:
+                hits = await self.retriever.search(name, location)
+            else:
+                hits = await self.retriever.search(name, location, industry=industry)
+            search["returned_count"] = len(hits)
+            return hits, None, search
+        except Exception as error:
+            return [], {"stage": "search", "scope": scope, "message": str(error)}, search
+
+    def _supplementary_query(
+        self, claims: dict[str, Any], hits: list[dict[str, Any]], searches: list[dict[str, Any]],
+    ) -> tuple[str | None, str] | None:
+        saturated = [search for search in searches
+                     if search["returned_count"] is not None
+                     and search["returned_count"] >= self.retriever.MAX_SEARCH_RESULTS]
+        if not saturated:
+            return None
+        industry = self._industry_hint(claims, hits)
+        if industry is None:
+            return None
+        locations = [search["location"] for search in saturated if search["location"] is not None]
+        # An uncapped city pool is already exhausted; diversify the capped name pool instead.
+        location = locations[0] if locations else None
+        return location, industry
+
+    def _industry_hint(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> str | None:
+        """Use observed labels with explicit CV support; hints never exclude original hits."""
+        categories = [
+            [job[field] for job in claims["jobs"] for field in ("company", "title")],
+            [education[field] for education in claims["education"] for field in ("school", "degree", "field")],
+            [skill["name"] for skill in claims["skills"]],
+        ]
+        wording = [[self._words(value) for value in category if isinstance(value, str)]
+                   for category in categories]
+        best_hint = None
+        best_support = 0
+        seen = set()
+        for hit in hits:
+            industry = hit.get("industry")
+            if not isinstance(industry, str):
+                continue
+            label = self._words(industry)
+            if not label.strip() or label in seen:
+                continue
+            seen.add(label)
+            support = sum(any(label in value for value in category) for category in wording)
+            if support > best_support:
+                best_hint, best_support = industry.strip(), support
+        return best_hint
+
+    def _words(self, value: str) -> str:
+        """Bound normalized phrases with spaces to avoid substring matches such as AI/AIA."""
+        return " " + " ".join(re.findall(r"\w+", value.casefold())) + " "
+
+    def _location_filters(self, claims: dict[str, Any]) -> list[str]:
+        """Use current/unspecified cities as discovery hints; always search the name too."""
+        locations = []
+        seen = set()
+        for candidate in claims["city"]["candidates"]:
+            if candidate["role"] not in ("current", "unspecified"):
+                continue
+            city = candidate["city"]
+            key = city.strip().casefold()
+            if key not in seen:
+                locations.append(city)
+                seen.add(key)
+        return locations
 
     async def _investigate(
         self, claims: dict[str, Any], hits: list[dict[str, Any]],
-        ranking: list[int], errors: list[dict[str, Any]], broader_search: bool,
+        ranking: list[int], shortlist: list[int], errors: list[dict[str, Any]], broader_search: bool,
+        discovery_searches: list[dict[str, Any]],
     ) -> dict[str, Any]:
         hits = self._new_hits(hits, set())
         ranking = list(dict.fromkeys(ranking))
@@ -68,7 +174,8 @@ class CandidatePipeline:
         stop_reason = "candidates_exhausted"
 
         while len(attempted_hits) < self.MAX_PROFILE_ATTEMPTS:
-            batch = self._next_batch(hits, ranking, attempted_ids)
+            pending_shortlist = [candidate_id for candidate_id in shortlist if candidate_id not in attempted_ids]
+            batch = self._next_batch(hits, pending_shortlist or ranking, attempted_ids)
             if not batch:
                 break
 
@@ -79,6 +186,9 @@ class CandidatePipeline:
             retrieved, retrieval_errors = await self.retriever.retrieve_profiles(batch)
             profiles.extend(retrieved)
             errors.extend(retrieval_errors)
+            if not set(shortlist).issubset(attempted_ids):
+                continue
+
             decision, resolution_errors = await self._resolve_identity(claims, profiles)
             errors.extend(resolution_errors)
             if decision["candidate_id"] is not None:
@@ -88,9 +198,10 @@ class CandidatePipeline:
             stop_reason = "budget_exhausted"
 
         return self._build_result(
-            claims=claims, search_hits=hits, ranking=ranking, profiles=profiles,
+            claims=claims, search_hits=hits, ranking=ranking, shortlist=shortlist, profiles=profiles,
             selected_hits=attempted_hits, errors=errors, decision=decision,
             broader_search=broader_search, stop_reason=stop_reason,
+            discovery_searches=discovery_searches,
         )
 
     def _next_batch(self, hits: list[dict[str, Any]], ranking: list[int],
@@ -114,7 +225,7 @@ class CandidatePipeline:
             return {"candidate_id": None, "reason": "No successfully retrieved profiles to examine."}, []
         try:
             proposed = await self.identity_resolver.resolve(claims, list(profiles))
-            return self.identity_validator.validate(proposed, profiles), []
+            return self.identity_validator.validate(proposed, profiles, claims), []
         except Exception as error:
             return {"candidate_id": None, "reason": "Identity decision failed; identity remains unresolved."}, [
                 {"stage": "identity", "message": str(error)},
@@ -124,6 +235,8 @@ class CandidatePipeline:
         self, *, claims: dict[str, Any] | None = None,
         search_hits: list[dict[str, Any]] | None = None,
         ranking: list[int] | None = None,
+        shortlist: list[int] | None = None,
+        discovery_searches: list[dict[str, Any]] | None = None,
         profiles: list[dict[str, Any]] | None = None,
         selected_hits: list[dict[str, Any]] | None = None,
         errors: list[dict[str, Any]] | None = None,
@@ -137,7 +250,11 @@ class CandidatePipeline:
         return {
             "claims": claims,
             "search_hits": hits,
+            "discovery_searches": discovery_searches if discovery_searches is not None else [],
             "ranked_candidate_ids": ranking if ranking is not None else [],
+            "shortlisted_candidate_ids": shortlist if shortlist is not None else [],
+            "shortlist_covered": shortlist is not None and selected_hits is not None
+                and set(shortlist).issubset({hit["id"] for hit in selected_hits}),
             "profiles": retrieved,
             "identity": "resolved" if identity["candidate_id"] is not None else "unresolved",
             "selected_candidate_id": identity["candidate_id"],
@@ -150,14 +267,31 @@ class CandidatePipeline:
             "errors": errors if errors is not None else [],
         }
 
-    async def _prioritize(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> tuple[list[int], list]:
+    async def _prioritize(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> tuple[list[int], list[int], list]:
         if not hits:
-            return [], []
+            return [], [], []
         try:
             proposed = await self.prioritizer.prioritize(claims, hits)
             shortlist = self.ranking_validator.validate(proposed, hits)
             selected_ids = set(shortlist)
-            remaining_ids = [hit["id"] for hit in hits if hit["id"] not in selected_ids]
-            return shortlist + remaining_ids, []
+            remaining_ids = [hit["id"] for hit in self._fallback_order(claims, hits) if hit["id"] not in selected_ids]
+            return shortlist + remaining_ids, shortlist, []
         except Exception as error:
-            return [hit["id"] for hit in hits], [{"stage": "prioritization", "message": str(error)}]
+            return [hit["id"] for hit in self._fallback_order(claims, hits)], [], [{"stage": "prioritization", "message": str(error)}]
+
+    def _fallback_order(self, claims: dict[str, Any], hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Rank returned metadata as search hints only; stable ties preserve coverage."""
+        categories = [
+            [job[field] for job in claims["jobs"] for field in ("company", "title")],
+            [entry[field] for entry in claims["education"] for field in ("school", "degree", "field")],
+            [skill["name"] for skill in claims["skills"]],
+        ]
+        wording = [[self._words(value) for value in group if isinstance(value, str)] for group in categories]
+        locations = [self._words(city) for city in self._location_filters(claims)]
+        def support(hit):
+            industry = self._words(hit["industry"]) if isinstance(hit.get("industry"), str) else ""
+            industry_support = sum(any(industry in value for value in group) for group in wording) if industry.strip() else 0
+            location = self._words(hit["location"]) if isinstance(hit.get("location"), str) else ""
+            location_support = any(city in location for city in locations)
+            return industry_support, location_support
+        return sorted(hits, key=support, reverse=True)

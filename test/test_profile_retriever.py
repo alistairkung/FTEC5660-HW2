@@ -33,6 +33,14 @@ class ProfileRetrieverTests(unittest.IsolatedAsyncioTestCase):
                 search.ainvoke.return_value = response
                 self.assertEqual(await retriever.search('Person', None), [])
 
+    async def test_industry_qualified_search_uses_supported_optional_filter(self):
+        retriever, search, _ = self.retriever()
+        hits = [{'id': 1, 'industry': 'Software'}]
+        search.ainvoke.return_value = blocks(hits)
+        self.assertEqual(await retriever.search('Person', 'London', industry='Software'), hits)
+        search.ainvoke.assert_awaited_once_with({
+            'q': 'Person', 'location': 'London', 'industry': 'Software', 'limit': 20, 'fuzzy': True})
+
     async def test_invalid_search_results_surface(self):
         for response in (blocks({}), blocks([{'id': True}]), blocks([{}]),
                          blocks({'error': 'unavailable'}), [{'type': 'text', 'text': 'not JSON'}]):
