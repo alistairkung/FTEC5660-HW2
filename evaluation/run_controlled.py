@@ -3,6 +3,8 @@
 import argparse
 import asyncio
 import json
+import os
+import tempfile
 import time
 from hashlib import sha256
 from collections import Counter
@@ -17,10 +19,26 @@ from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
 from hw2 import MODEL_NAME, PER_CV_TIMEOUT_SECONDS, THRESHOLD, load_env_file
-from scripts.inspect_batch import _save_results
 from evaluation.cases import load_cases
 
 _CALLS = ContextVar('controlled_evaluation_calls', default=None)
+
+
+def _save_results(output, payload):
+    """Replace the development JSON atomically after each completed CV."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                         prefix=".batch-", suffix=".json", delete=False) as handle:
+            temporary = Path(handle.name)
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, output)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def build_components(llm):
