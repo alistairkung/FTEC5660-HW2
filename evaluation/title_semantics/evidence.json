@@ -1,0 +1,1006 @@
+{
+  "description": "Curated recorded decisions for offline replay, not a new model evaluation. Raw prompts, full profiles and runtime captures are excluded.",
+  "source_commit": "eea632e14952f7ce7ce91e026d10c11952a584d2",
+  "saved_inputs_sha256": "354c704933523ee238db5bb3ebc1932fa94a8465a9b30a06be226ac4cd49f252",
+  "primary_input_sha256": "258be6c8e352b9e1c39f9afa6cdebdda07c9255f70b545ff0f51c0ee19268b94",
+  "replay_decisions": [
+    {
+      "stage": "comparison",
+      "output": {
+        "findings": [
+          {
+            "claim_id": "name",
+            "status": "MATCH",
+            "evidence_paths": [
+              "name"
+            ],
+            "reason": "The claimed name Angela Yip matches the profile name."
+          },
+          {
+            "claim_id": "city",
+            "status": "MATCH",
+            "evidence_paths": [
+              "city"
+            ],
+            "reason": "The claimed current city London matches the profile city London."
+          },
+          {
+            "claim_id": "jobs.0.company",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.1.company"
+            ],
+            "reason": "The claimed employer Deloitte matches the profile experience at Deloitte."
+          },
+          {
+            "claim_id": "jobs.0.title",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.1.title",
+              "experience.1.seniority"
+            ],
+            "reason": "Claimed Director aligns with profile Manager with seniority senior, a legitimate seniority equivalent."
+          },
+          {
+            "claim_id": "jobs.0.start_year",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.1.start_year"
+            ],
+            "reason": "The claimed start year 2020 matches the profile start year 2020."
+          },
+          {
+            "claim_id": "jobs.0.is_current",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.1.is_current"
+            ],
+            "reason": "The claimed current role matches profile is_current true."
+          },
+          {
+            "claim_id": "jobs.1.company",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.0.company"
+            ],
+            "reason": "The claimed employer Carousell matches the profile experience at Carousell."
+          },
+          {
+            "claim_id": "jobs.1.title",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.0.title",
+              "experience.0.seniority"
+            ],
+            "reason": "Claimed Senior Scientist aligns with profile Scientist with seniority senior."
+          },
+          {
+            "claim_id": "jobs.1.start_year",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.0.start_year"
+            ],
+            "reason": "The claimed start year 2012 matches the profile start year 2012."
+          },
+          {
+            "claim_id": "jobs.1.end_year",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.0.end_year"
+            ],
+            "reason": "The claimed end year 2018 matches the profile end year 2018."
+          },
+          {
+            "claim_id": "jobs.1.is_current",
+            "status": "MATCH",
+            "evidence_paths": [
+              "experience.0.is_current"
+            ],
+            "reason": "The claimed non-current role matches profile is_current false."
+          },
+          {
+            "claim_id": "education.0.school",
+            "status": "MATCH",
+            "evidence_paths": [
+              "education.0.school"
+            ],
+            "reason": "The claimed school Stanford matches the profile education school."
+          },
+          {
+            "claim_id": "education.0.degree",
+            "status": "MATCH",
+            "evidence_paths": [
+              "education.0.degree"
+            ],
+            "reason": "Claimed Master of Business Administration matches profile MBA."
+          },
+          {
+            "claim_id": "education.0.field",
+            "status": "MATCH",
+            "evidence_paths": [
+              "education.0.field"
+            ],
+            "reason": "The claimed field Logistics matches the profile education field."
+          },
+          {
+            "claim_id": "education.0.graduation_year",
+            "status": "MATCH",
+            "evidence_paths": [
+              "education.0.end_year"
+            ],
+            "reason": "The claimed graduation year 2012 matches profile education end year 2012."
+          },
+          {
+            "claim_id": "skills.0.name",
+            "status": "MATCH",
+            "evidence_paths": [
+              "skills.0.name"
+            ],
+            "reason": "Claimed skill Supply Chain is present in the profile skills."
+          },
+          {
+            "claim_id": "skills.1.name",
+            "status": "MATCH",
+            "evidence_paths": [
+              "skills.1.name"
+            ],
+            "reason": "Claimed skill Inventory Management is present in the profile skills."
+          },
+          {
+            "claim_id": "skills.2.name",
+            "status": "MATCH",
+            "evidence_paths": [
+              "skills.2.name"
+            ],
+            "reason": "Claimed skill Operations is present in the profile skills."
+          }
+        ]
+      }
+    },
+    {
+      "stage": "reflection",
+      "output": {
+        "corrections": []
+      }
+    }
+  ],
+  "observations": [
+    {
+      "id": "director_manager_1",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed Director aligns with profile Manager with seniority senior, a legitimate seniority equivalent."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Claimed Director aligns with profile Manager with seniority senior, a legitimate seniority equivalent."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6433,
+      "seconds": 4.135600666515529
+    },
+    {
+      "id": "director_manager_2",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed Director matches Manager with seniority senior as a legitimate semantic equivalent."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Claimed Director matches Manager with seniority senior as a legitimate semantic equivalent."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6397,
+      "seconds": 4.216823000460863
+    },
+    {
+      "id": "director_manager_3",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed Director aligns with profile title Manager, seniority senior."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Claimed Director aligns with profile title Manager, seniority senior."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6481,
+      "seconds": 3.6559559172019362
+    },
+    {
+      "id": "director_manager_4",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Director matches Manager with seniority senior."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Director matches Manager with seniority senior."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6391,
+      "seconds": 3.4751348746940494
+    },
+    {
+      "id": "director_manager_5",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed Director aligns with profile Manager with seniority senior."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Claimed Director aligns with profile Manager with seniority senior."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6405,
+      "seconds": 3.7856562919914722
+    },
+    {
+      "id": "manager_manager",
+      "cv_title": "Manager",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed title Manager matches profile title Manager with seniority."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Manager",
+          "raw": "Manager, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Claimed title Manager matches profile title Manager with seniority."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6399,
+      "seconds": 3.8755766255781054
+    },
+    {
+      "id": "senior_manager_manager",
+      "cv_title": "Senior Manager",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Senior Manager matches Manager with senior seniority."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Senior Manager",
+          "raw": "Senior Manager, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "Senior Manager matches Manager with senior seniority."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6380,
+      "seconds": 4.019274165853858
+    },
+    {
+      "id": "manager_director",
+      "cv_title": "Manager",
+      "profile_title": "Director",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MISMATCH",
+          "evidence_paths": [
+            "experience.1.title"
+          ],
+          "reason": "The CV claims Manager but the corresponding Deloitte role is Director."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Manager",
+          "raw": "Manager, Deloitte    2020 – Present"
+        },
+        "status": "MISMATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Director"
+          }
+        ],
+        "reason": "The CV claims Manager but the corresponding Deloitte role is Director."
+      },
+      "score": 0.1,
+      "reflection": {
+        "attempted": false,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 1,
+      "tokens": 3016,
+      "seconds": 2.925833540968597
+    },
+    {
+      "id": "director_director",
+      "cv_title": "Director",
+      "profile_title": "Director",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title"
+          ],
+          "reason": "The claimed title Director matches the profile title Director."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Director"
+          }
+        ],
+        "reason": "The claimed title Director matches the profile title Director."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6399,
+      "seconds": 3.757433625869453
+    },
+    {
+      "id": "manager_mgr",
+      "cv_title": "Manager",
+      "profile_title": "Mgr.",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "CV Manager with no seniority aligns with the profile's Mgr. senior role."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Manager",
+          "raw": "Manager, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Mgr."
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "CV Manager with no seniority aligns with the profile's Mgr. senior role."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6485,
+      "seconds": 3.909423707984388
+    },
+    {
+      "id": "senior_analyst_junior",
+      "cv_title": "Senior Analyst",
+      "profile_title": "Analyst",
+      "profile_seniority": "junior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Claimed Senior Analyst matches profile Analyst with seniority senior."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Senior Analyst",
+          "raw": "Senior Analyst, Deloitte    2020 – Present"
+        },
+        "status": "MISMATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Analyst"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "junior"
+          },
+          {
+            "path": "experience.1.company",
+            "value": "Deloitte"
+          },
+          {
+            "path": "experience.1.start_year",
+            "value": 2020
+          }
+        ],
+        "reason": "Explicit CV grade 'senior' contradicts profile grade 'junior'; the baseline-aligned employer, base role and stated dates agree."
+      },
+      "score": 0.1,
+      "reflection": {
+        "attempted": false,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 1,
+      "tokens": 3072,
+      "seconds": 3.0556055000051856
+    },
+    {
+      "id": "org_specific_associate_director",
+      "cv_title": "Associate Director",
+      "profile_title": "Senior Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.0.title",
+            "experience.0.seniority"
+          ],
+          "reason": "Claimed Associate Director matches profile Senior Manager with senior seniority, a legitimate seniority equivalence."
+        },
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Associate Director aligns with Senior Manager via seniority equivalence."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Associate Director",
+          "raw": "Associate Director, Deloitte    2020 – Present"
+        },
+        "status": "MISMATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Senior Manager"
+          }
+        ],
+        "reason": "The profile shows the Deloitte role title as Senior Manager, not the claimed Associate Director."
+      },
+      "score": 0.1,
+      "reflection": {
+        "attempted": true,
+        "corrections": [
+          {
+            "claim_id": "jobs.0.title",
+            "cv_claim": {
+              "value": "Associate Director",
+              "raw": "Associate Director, Deloitte    2020 – Present"
+            },
+            "status": "MISMATCH",
+            "evidence": [
+              {
+                "path": "experience.1.title",
+                "value": "Senior Manager"
+              }
+            ],
+            "reason": "The profile shows the Deloitte role title as Senior Manager, not the claimed Associate Director."
+          }
+        ]
+      },
+      "errors": [],
+      "model_calls": 3,
+      "tokens": 9596,
+      "seconds": 7.164268999360502
+    },
+    {
+      "id": "director_manager_no_grade",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": null,
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Director matches Manager with seniority senior, considered together."
+        },
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Director is a legitimate seniority-equivalent match to Manager with no false seniority claimed."
+        }
+      ],
+      "final_title_finding": null,
+      "score": 0.5,
+      "reflection": {
+        "attempted": false,
+        "corrections": []
+      },
+      "errors": [
+        {
+          "stage": "comparison",
+          "message": "Missing profile values are not supporting or contradictory evidence"
+        }
+      ],
+      "model_calls": 2,
+      "tokens": 6108,
+      "seconds": 7.127512792125344
+    },
+    {
+      "id": "director_manager_junior",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "junior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "Director matches Manager with junior seniority under legitimate semantic equivalence."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "junior"
+          }
+        ],
+        "reason": "Director matches Manager with junior seniority under legitimate semantic equivalence."
+      },
+      "score": 0.9,
+      "reflection": {
+        "attempted": true,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 2,
+      "tokens": 6387,
+      "seconds": 4.399189915508032
+    },
+    {
+      "id": "minimal_director_manager",
+      "cv_title": "Director",
+      "profile_title": "Manager",
+      "profile_seniority": "senior",
+      "comparison_decisions": [
+        {
+          "claim_id": "jobs.0.title",
+          "status": "MISMATCH",
+          "evidence_paths": [
+            "experience.1.title",
+            "experience.1.seniority"
+          ],
+          "reason": "The CV claims Director, but the aligned Deloitte record shows Senior Manager (Manager with senior seniority), which is not equivalent to Director."
+        }
+      ],
+      "final_title_finding": {
+        "claim_id": "jobs.0.title",
+        "cv_claim": {
+          "value": "Director",
+          "raw": "Director, Deloitte    2020 – Present"
+        },
+        "status": "MISMATCH",
+        "evidence": [
+          {
+            "path": "experience.1.title",
+            "value": "Manager"
+          },
+          {
+            "path": "experience.1.seniority",
+            "value": "senior"
+          }
+        ],
+        "reason": "The CV claims Director, but the aligned Deloitte record shows Senior Manager (Manager with senior seniority), which is not equivalent to Director."
+      },
+      "score": 0.1,
+      "reflection": {
+        "attempted": false,
+        "corrections": []
+      },
+      "errors": [],
+      "model_calls": 1,
+      "tokens": 1875,
+      "seconds": 1.7864765832200646
+    }
+  ],
+  "baseline_summary": {
+    "source_commit": "eea632e14952f7ce7ce91e026d10c11952a584d2",
+    "production_unchanged": true,
+    "controlled_fixed_upstream": {
+      "cases": 12,
+      "model_calls": 23,
+      "tokens": 73454,
+      "seconds": 47.97658691648394,
+      "director_manager_repeats": 5,
+      "accepted_as_valid": 5
+    },
+    "additional_probes": {
+      "cases": 3,
+      "model_calls": 5,
+      "tokens": 14370,
+      "seconds": 13.31317929085344,
+      "processing_failure_cases": 1
+    },
+    "pdf_trace": {
+      "score": 0.9,
+      "identity": 6337,
+      "model_calls": 5,
+      "tokens": 12100,
+      "seconds": 13.605706417001784
+    },
+    "public": {
+      "correct": "7/7",
+      "runtime": {
+        "exit_code": 0,
+        "seconds": 37
+      },
+      "tokens": 79996,
+      "per_cv_max_seconds": 13.136874708347023,
+      "errors": 0,
+      "fallbacks": 0,
+      "model_calls": "not exposed by native CLI diagnostics"
+    },
+    "controls25": {
+      "seconds_wall": 32.551599957980216,
+      "false_valid": 0,
+      "false_discrepant": 0,
+      "classification_errors_with_processing_error": 0,
+      "llm_calls": 37,
+      "input_tokens": 95035,
+      "output_tokens": 21486,
+      "total_tokens": 116521,
+      "missing_token_usage_calls": 0,
+      "binary_cases": 23,
+      "correct": 23,
+      "ambiguous_cases": 2,
+      "graded_claims": 446,
+      "correct_claims": 444,
+      "graded_targets": 35,
+      "correct_targets": 34,
+      "unknown_claims": 5,
+      "unknown_cases": 3,
+      "score_half_cases": 3,
+      "fallback_cases": 0,
+      "processing_error_cases": 0,
+      "off_anchor_citations": 0,
+      "uncertainty_correct_cases": 2,
+      "reflection_corrections": 0,
+      "seconds": 88.97562795970589,
+      "accuracy": 1.0,
+      "claim_accuracy": 0.9955156950672646,
+      "target_accuracy": 0.9714285714285714,
+      "error_stages": {},
+      "error_kinds": {},
+      "call_stages": {
+        "comparison": 25,
+        "reflection": 12
+      }
+    },
+    "tests": {
+      "production": 167,
+      "controlled_evaluation": 12
+    },
+    "scope": "No correction implemented; all expected outcomes offline; no new commit or PR."
+  },
+  "production_sha256": {
+    "cv_verifier/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "cv_verifier/candidate_pipeline.py": "9ac09f783fb21e5d24caf97d6e2259ae8420ff47e6e964dc985484c5962c14f0",
+    "cv_verifier/candidate_prioritizer.py": "a131d2091e00e66c77bd824eecce231d4c8b200647b6a26f5df382b17e485ff4",
+    "cv_verifier/candidate_ranking_validator.py": "c4b077b3caa6b47f93adc4167bff35d3fb1cc599ab11584ec037abcee7c19e60",
+    "cv_verifier/claim_comparator.py": "350f152fd0388e4eca36bb4ee7259280913e9823d7e2a1837ca6d857a55c3bc1",
+    "cv_verifier/claim_comparison_validator.py": "694502cd6e65eeb2de947ef6e5ac07b91b6e92aea83f20ad7e79288fea31fc9c",
+    "cv_verifier/claim_extractor.py": "9e29e6c99cb8b77b3f28d3bba200747eea6dfe3a88f61c52b39040487086bb49",
+    "cv_verifier/claim_reflector.py": "50bd1d809bc1e50df688cd55f9adcb2806421eb9ae5ec3508fd4ced39ea9693c",
+    "cv_verifier/claim_validator.py": "32d7df4dd227c4ec5c6a78f7190ea48b56cc246c21817955c343f29db77258fc",
+    "cv_verifier/cv_scorer.py": "471a4672fcf02bc04691edaf93f7a9ef6b0beb1954676d6a418f71e1af5df235",
+    "cv_verifier/cv_verifier.py": "20a755913d67969e8eadc9c07338d2c55037e8fca8761f0b1fc311c380196f8e",
+    "cv_verifier/identity_decision_validator.py": "905279d4c85f23395bdfa60cc34c42decd9c5b61e6d928bff2788bb94dbe6435",
+    "cv_verifier/identity_resolver.py": "d1071a8df49c40d7a4f8eac9d1ef2e36d1c284eaac143f8808d5c9f50098e0fb",
+    "cv_verifier/profile_retriever.py": "9d025a4d46f24d6552f2ab15e14f5d089104b2a510ef5f3251fd3fedc0c65ad1",
+    "hw2.py": "8bcbe3d1eb4ffeb522d65bc340e8cfac45632631b3e17f2483808cfabc691722",
+    "requirements.txt": "783dcb55a5b4fb2c4189ac70bc6db9ada3a302c825d0d1edf2f9c139ad2c2e9b"
+  },
+  "pdf_trace": {
+    "claimed_job": {
+      "raw": "Director, Deloitte    2020 - Present",
+      "company": "Deloitte",
+      "title": "Director",
+      "seniority": null,
+      "dates_raw": "2020 - Present",
+      "start_year": 2020,
+      "end_year": null,
+      "is_current": true
+    },
+    "selected_candidate_id": 6337,
+    "shortlisted_candidate_ids": [
+      6337,
+      8283,
+      23,
+      1494,
+      6478
+    ],
+    "attempted_candidate_ids": [
+      6337,
+      8283,
+      23,
+      1494,
+      6478
+    ],
+    "aligned_record_index": 1,
+    "profile_record": {
+      "company": "Deloitte",
+      "title": "Manager",
+      "seniority": "senior",
+      "start_year": 2020,
+      "end_year": null,
+      "is_current": true
+    },
+    "comparison_title_decision": {
+      "claim_id": "jobs.0.title",
+      "status": "MATCH",
+      "evidence_paths": [
+        "experience.1.title",
+        "experience.1.seniority"
+      ],
+      "reason": "Director aligns with Manager at senior seniority."
+    },
+    "reflection_output": {
+      "corrections": []
+    },
+    "score": 0.9,
+    "errors": []
+  }
+}
