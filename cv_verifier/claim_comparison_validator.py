@@ -365,6 +365,64 @@ class ClaimComparisonValidator:
             replacements[target["claim_id"]] = replacement
         return self.validate([replacements.get(f["claim_id"], f) for f in findings], claims, profile)
 
+    def eligible_title_reviews(self, findings: list[dict[str, Any]], claims: dict[str, Any],
+                               profile: dict[str, Any]) -> list[dict[str, Any]]:
+        """Find questionable MATCH titles using PR33's independent correspondence boundary.
+
+        Different employer spellings and missing period facts cannot exclude a
+        competitor. Titles never establish correspondence or rank records.
+        """
+        self.validate(findings, claims, profile)
+        originals = {f['claim_id']: f for f in findings}
+        experience = profile.get('experience')
+        if not isinstance(experience, list):
+            return []
+        eligible = []
+        for job_index, job in enumerate(claims['jobs']):
+            prefix = f'jobs.{job_index}.'
+            target = originals.get(prefix + 'title')
+            company = self._city_words(job.get('company') or '')
+            if (not target or target['status'] != 'MATCH' or not job.get('title')
+                    or not company or job.get('start_year') is None
+                    or type(job.get('is_current')) is not bool
+                    or (job['is_current'] and job.get('end_year') is not None)
+                    or (not job['is_current'] and job.get('end_year') is None)):
+                continue
+            period = {field: job[field] for field in ('start_year', 'is_current', 'end_year')}
+            candidates = [i for i, record in enumerate(experience) if isinstance(record, dict)
+                          and all(record.get(field) is None or record[field] == value
+                                  for field, value in period.items())]
+            if len(candidates) != 1:
+                continue
+            index = candidates[0]
+            record = experience[index]
+            if (self._city_words(record.get('company') or '') != company or not record.get('title')
+                    or any(field not in record or record[field] != value for field, value in period.items())):
+                continue
+            fields = ('company', 'start_year', 'is_current') + (() if job['is_current'] else ('end_year',))
+            if any(prefix + field not in originals or originals[prefix + field]['status'] != 'MATCH'
+                   or not any(e['path'] == f'experience.{index}.{field}'
+                              for e in originals[prefix + field]['evidence']) for field in fields):
+                continue
+            records = {int(e['path'].split('.')[1]) for f in findings
+                       if f['claim_id'].startswith(prefix) for e in f['evidence']
+                       if len(e['path'].split('.')) == 3 and e['path'].startswith('experience.')}
+            if records != {index}:
+                continue
+            base, title_grade = self._title_parts(job['title'])
+            supplied_base, supplied_title_grade = self._title_parts(record['title'])
+            claimed_grade = title_grade or self._seniority(job.get('seniority'))
+            supplied_grade = self._seniority(record.get('seniority')) or supplied_title_grade
+            # Normalization excludes established abbreviations and supported same-base
+            # qualifiers only; different base strings merely trigger semantic review.
+            if base == supplied_base and (claimed_grade is None or claimed_grade == supplied_grade):
+                continue
+            paths = [f'experience.{index}.{field}' for field in ('title', *fields)]
+            if record.get('seniority') is not None:
+                paths.append(f'experience.{index}.seniority')
+            eligible.append({'claim_id': target['claim_id'], 'record_index': index, 'evidence_paths': paths})
+        return eligible
+
     def _normalize_city(self, value: str, country: Any) -> str:
         """Strip only an explicitly delimited qualifier matching supplied country metadata."""
         parts = [part for part in re.split(r"[,()|/]", value) if part.strip()]
