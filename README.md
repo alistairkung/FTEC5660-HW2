@@ -94,6 +94,33 @@ attack the MCP server. See the homework description for the full rules.
 
 ### Task 1
 
+```mermaid
+flowchart TD
+    PDF["PDF: supplied MarkItDown loader"] --> EX["ClaimExtractor + ClaimValidator"]
+    EX --> DISC["CandidatePipeline: LinkedIn discovery, prioritization and retrieval"]
+    DISC --> ID["IdentityResolver + IdentityDecisionValidator"]
+    ID --> CMP["Existing ClaimComparator"]
+    CMP --> VAL["ClaimComparisonValidator: canonical evidence + narrow safeguards"]
+    VAL --> SKILLS{"Skill finding"}
+    SKILLS -->|"Existing MISMATCH or exact MATCH"| KEEP["Preserve validated finding"]
+    SKILLS -->|"UNKNOWN or non-exact MATCH; available skills"| SR["SkillEquivalenceReviewer: semantic skills audit"]
+    SR --> JUDGE{"Specialist judgment"}
+    JUDGE -->|"MATCH"| SUP["Validate supporting skill evidence"]
+    JUDGE -->|"MISMATCH"| ABS["Validate authoritative-list absence"]
+    JUDGE -->|"UNKNOWN or error"| BASE["Preserve original finding"]
+    KEEP --> RESCORE["Validated findings + CVScorer"]
+    SUP --> RESCORE
+    ABS --> RESCORE
+    BASE --> RESCORE
+    RESCORE -->|"0.9 positive only"| REF["ClaimReflector: bounded audit + validated corrections"]
+    RESCORE -->|"0.1 or 0.5"| OUT["Final score"]
+    REF -->|"still 0.9; eligible title"| TITLE["TitleEquivalenceReviewer: title-only audit"]
+    REF -->|"otherwise"| OUT
+    TITLE -->|"supported MISMATCH"| TVAL["Canonical title correction + rescore"]
+    TITLE -->|"MATCH, UNKNOWN, error or ambiguous record"| OUT
+    TVAL --> OUT
+```
+
 I built a modular LangChain CV verifier using `deepseek-v4-flash` and SocialGraph LinkedIn evidence. It extracts structured claims, searches and ranks candidates, retrieves profiles within a bounded budget, and resolves identity before comparing employment, education, location and skills; employment records are matched by contextual evidence rather than array position. Python reconstructs and validates cited profile evidence, applies narrowly corroborated title/seniority safeguards, and assigns 0.9 for fully supported CVs, 0.1 for grounded discrepancies and 0.5 when evidence is unresolved. A bounded positive-result reflection pass and a specialist title-equivalence audit address missed title inflation; an optional skill-equivalence audit checks aliases and absent skills against the supplied authoritative skills list before scoring, preserving validated findings on errors. I evaluated alternative deterministic/hybrid alignment designs but retained the semantic comparator because controlled tests exposed unsafe correspondence propagation and weaker claim-level results. After improving candidate selection, bounded recovery and evidence validation, I tested 25 structured cases and repeated the lecturer's public command: an earlier baseline achieved 70/70 classifications; the final skill-specialist campaign achieved 69/70, with all 30 negative cases grounded at 0.1 and one unrelated end-year UNKNOWN causing a 0.5. This demonstrates strong public-test performance, not guaranteed accuracy on unseen CVs.
 
 ### Task 2
