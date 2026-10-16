@@ -23,16 +23,8 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
             if fail_name is not None and context.get('claims', {}).get('name', {}).get('value') == fail_name:
                 raise RuntimeError('Fake model unavailable')
             system = messages[0].content
-            if system.startswith('Align CV'):
-                output = {'jobs': [{'cv_index': 0, 'profile_index': 1, 'reason': 'Deloitte'},
-                                    {'cv_index': 1, 'profile_index': 0, 'reason': 'Carousell'}],
-                          'education': [{'cv_index': 0, 'profile_index': 0, 'reason': 'Stanford'}]}
-            elif system.startswith('Audit'):
+            if system.startswith('Audit'):
                 output = {'corrections': []}
-            elif 'requested_claim_ids' in context:
-                output = {'findings': [{'claim_id': reference, 'status': 'MATCH',
-                                       'evidence_paths': ['education.0.degree'], 'reason': 'Fake MBA equivalence'}
-                                      for reference in context['requested_claim_ids']]}
             else:
                 findings = []
                 for reference in context['claim_catalog']:
@@ -76,7 +68,7 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(CASES, specs)
         self.assertNotEqual(load_cases(limit=1)[0]['claims']['name']['value'], 'Changed test copy')
 
-    async def test_paired_inputs_no_labels_canonical_results_and_full_persistence(self):
+    async def test_production_inputs_no_labels_canonical_results_and_full_persistence(self):
         cases = load_cases(limit=1)
         cases[0]['explanation'] = 'SECRET GRADING EXPLANATION'
         original = deepcopy(cases)
@@ -87,28 +79,19 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('SECRET GRADING EXPLANATION', json.dumps(prompts))
         self.assertTrue(all('expected_label' not in prompt for prompt in prompts))
         comparator = next(p for p in prompts if 'claim_catalog' in p and 'claims' in p)
-        alignment = next(p for p in prompts if set(p) == {'claims', 'profile'})
-        self.assertEqual(comparator['claims'], alignment['claims'])
-        self.assertEqual(comparator['profile'], alignment['profile'])
         self.assertEqual(comparator['claims'], cases[0]['claims'])
-        for name in ('production', 'hybrid'):
-            result = record[name]['result']
-            ClaimComparisonValidator().validate(result['findings'], cases[0]['claims'], cases[0]['profile'])
-            self.assertEqual(result['score'], 0.9)
+        result = record['production']['result']
+        ClaimComparisonValidator().validate(result['findings'], cases[0]['claims'], cases[0]['profile'])
+        self.assertEqual(result['score'], 0.9)
         self.assertEqual(payload['summary']['production']['llm_calls'], 2)
-        self.assertEqual(payload['summary']['hybrid']['llm_calls'], 2)
 
-    async def test_three_case_slice_reports_errors_without_relabelling_mutations(self):
+    async def test_three_case_slice_reports_grade_failures_without_relabelling_mutations(self):
         model, _ = self.fake_model()
         payload = await self.run_cases(load_cases(limit=3), model)
         self.assertEqual([r['case']['id'] for r in payload['records']], [c['id'] for c in CASES[:3]])
         self.assertFalse(payload['records'][1]['production']['grading']['correct'])
-        self.assertTrue(payload['records'][1]['hybrid']['grading']['correct'])
-        fabricated = payload['records'][2]['hybrid']
-        self.assertEqual(fabricated['result']['errors'][0]['kind'], 'contract')
-        self.assertTrue(fabricated['grading']['claim_failures'])
-        self.assertEqual(payload['summary']['hybrid']['semantic_contract_failures'], 1)
-        self.assertIn('start_year_contradiction', payload['summary']['hybrid_claim_fixes'])
+        self.assertFalse(payload['records'][2]['production']['grading']['correct'])
+        self.assertTrue(payload['records'][2]['production']['grading']['claim_failures'])
 
     async def test_per_case_model_errors_do_not_stop_other_cases(self):
         original = load_cases(limit=1)[0]
@@ -119,10 +102,9 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         model, _ = self.fake_model(fail_name='Fail case')
         payload = await self.run_cases(cases, model)
         self.assertEqual(len(payload['records']), 2)
-        for name in ('production', 'hybrid'):
-            self.assertEqual(payload['records'][0][name]['result']['score'], 0.5)
-            self.assertEqual(payload['records'][0][name]['result']['errors'][0]['kind'], 'model')
-            self.assertEqual(payload['records'][1][name]['result']['score'], 0.9)
+        self.assertEqual(payload['records'][0]['production']['result']['score'], 0.5)
+        self.assertEqual(payload['records'][0]['production']['result']['errors'][0]['kind'], 'model')
+        self.assertEqual(payload['records'][1]['production']['result']['score'], 0.9)
 
     def test_unknown_labels_threshold_and_metric_denominators(self):
         case = load_cases(limit=1)[0]
@@ -133,13 +115,12 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(grading['binary_eligible'])
         self.assertIsNone(grading['correct'])
         self.assertEqual(grading['prediction'], 0)
-        row = {'case': case, 'production': {'result': result, 'grading': grading, 'calls': [], 'seconds': 1},
-               'hybrid': {'result': result, 'grading': grading, 'calls': [], 'seconds': 1}}
+        row = {'case': case, 'production': {'result': result, 'grading': grading, 'calls': [], 'seconds': 1}}
         summary = aggregate([row])
-        self.assertEqual(summary['hybrid']['binary_cases'], 0)
-        self.assertEqual(summary['hybrid']['graded_claims'], 1)
-        self.assertEqual(summary['hybrid']['correct_claims'], 1)
-        self.assertEqual(summary['hybrid']['unknown_claims'], 1)
+        self.assertEqual(summary['production']['binary_cases'], 0)
+        self.assertEqual(summary['production']['graded_claims'], 1)
+        self.assertEqual(summary['production']['correct_claims'], 1)
+        self.assertEqual(summary['production']['unknown_claims'], 1)
         case['expected_label'] = 1
         self.assertFalse(grade(case, result)['correct'])
         result['score'] = 0.9
@@ -168,37 +149,31 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             load_cases(limit=-1)
 
-    def test_explicit_and_citation_alignment_grading_distinguishes_errors_and_abstention(self):
+    def test_citation_grading_distinguishes_wrong_record_from_ambiguous_anchor(self):
         case = load_cases(limit=1)[0]
         result = {'score': 0.5, 'errors': [], 'findings': [{'claim_id': 'jobs.0.company', 'status': 'MATCH',
-                   'evidence': [{'path': 'experience.0.company', 'value': 'Carousell'}]}],
-                  'alignments': {'jobs': [{'cv_index': 0, 'profile_index': 0}, {'cv_index': 1, 'profile_index': None}],
-                                 'education': [{'cv_index': 0, 'profile_index': 0}]}}
+                   'evidence': [{'path': 'experience.0.company', 'value': 'Carousell'}]}]}
         grading = grade(case, result)
-        self.assertEqual(len(grading['alignment_errors']), 1)
-        self.assertEqual(len(grading['alignment_abstentions']), 1)
         self.assertEqual(len(grading['off_anchor_citations']), 1)
         case['alignment_expectations']['jobs'] = ['ambiguous', 'ambiguous']
         grading = grade(case, result)
-        self.assertEqual(grading['alignment_errors'], [])
         self.assertEqual(grading['off_anchor_citations'], [])
 
     def test_metric_aggregation_counts_false_predictions_contracts_tokens_and_corrections(self):
         case = load_cases(limit=1)[0]
         records = []
-        for expected, production_score, hybrid_score in ((1, 0.5, 0.9), (0, 0.9, 0.1), (None, 0.5, 0.5)):
+        for expected, production_score in ((1, 0.5), (0, 0.9), (None, 0.5)):
             specimen = deepcopy(case)
             specimen['expected_label'] = expected
             specimen['expected_claims'] = {'name': 'MATCH'}
             specimen['targets'] = {'name': 'MATCH'}
             row = {'case': specimen}
-            for name, score in (('production', production_score), ('hybrid', hybrid_score)):
-                result = {'score': score, 'findings': [{'claim_id': 'name', 'status': 'MATCH'}], 'errors': [],
-                          'reflection': {'corrections': [{'claim_id': 'name'}] if name == 'production' else []}}
-                if name == 'production' and expected == 1:
-                    result['errors'] = [{'stage': 'comparison', 'kind': 'contract', 'message': 'Invalid fake output'}]
-                row[name] = {'result': result, 'grading': grade(specimen, result), 'seconds': 1,
-                             'calls': [{'stage': 'comparison', 'usage': {'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15}}]}
+            result = {'score': production_score, 'findings': [{'claim_id': 'name', 'status': 'MATCH'}], 'errors': [],
+                      'reflection': {'corrections': [{'claim_id': 'name'}]}}
+            if expected == 1:
+                result['errors'] = [{'stage': 'comparison', 'kind': 'contract', 'message': 'Invalid fake output'}]
+            row['production'] = {'result': result, 'grading': grade(specimen, result), 'seconds': 1,
+                         'calls': [{'stage': 'comparison', 'usage': {'input_tokens': 10, 'output_tokens': 5, 'total_tokens': 15}}]}
             records.append(row)
         summary = aggregate(records)
         self.assertEqual(summary['production']['binary_cases'], 2)
@@ -208,9 +183,9 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary['production']['reflection_corrections'], 3)
         self.assertEqual(summary['production']['input_tokens'], 30)
         self.assertEqual(summary['production']['output_tokens'], 15)
-        self.assertEqual(summary['hybrid']['accuracy'], 1.0)
-        self.assertEqual(summary['hybrid']['claim_accuracy'], 1.0)
-        self.assertEqual(summary['hybrid']['target_accuracy'], 1.0)
+        self.assertEqual(summary['production']['accuracy'], 0.0)
+        self.assertEqual(summary['production']['claim_accuracy'], 1.0)
+        self.assertEqual(summary['production']['target_accuracy'], 1.0)
 
     def test_missing_binary_label_is_excluded(self):
         case = load_cases(limit=1)[0]
@@ -234,12 +209,11 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
         model = RunnableLambda(lambda _: AIMessage(content='not JSON'))
         with patch('hw2._write_checkpoint') as checkpoint:
             payload = await self.run_cases(load_cases(limit=1), model)
-        for name in ('production', 'hybrid'):
-            self.assertEqual(payload['records'][0][name]['result']['errors'][0]['kind'], 'contract')
-            self.assertEqual(payload['records'][0][name]['result']['score'], 0.5)
+        self.assertEqual(payload['records'][0]['production']['result']['errors'][0]['kind'], 'contract')
+        self.assertEqual(payload['records'][0]['production']['result']['score'], 0.5)
         checkpoint.assert_not_called()
 
-    async def test_pair_concurrency_never_exceeds_three(self):
+    async def test_production_concurrency_never_exceeds_three(self):
         original = load_cases(limit=1)[0]
         cases = [dict(deepcopy(original), id=f'fake_case_{i}') for i in range(7)]
         active = peak = 0
@@ -253,8 +227,7 @@ class ControlledEvaluationTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 active -= 1
         model, _ = self.fake_model()
-        with patch('evaluation.run_controlled.production', side_effect=measured), \
-             patch('evaluation.run_controlled.hybrid', side_effect=measured):
+        with patch('evaluation.run_controlled.production', side_effect=measured):
             payload = await self.run_cases(cases, model)
         self.assertEqual(peak, 3)
         self.assertEqual(len(payload['records']), 7)
