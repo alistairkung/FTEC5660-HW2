@@ -16,10 +16,10 @@ from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.claim_reflector import ClaimReflector
 from cv_verifier.cv_scorer import CVScorer
 from cv_verifier.cv_verifier import CVVerifier
-from cv_verifier.record_aligner import RecordAligner
-from cv_verifier.evidence_aligner import EvidenceAligner
-from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
-from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
+from evaluation.experimental.record_aligner import RecordAligner
+from evaluation.experimental.evidence_aligner import EvidenceAligner
+from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
+from evaluation.experimental.semantic_claim_resolver import SemanticClaimResolver
 from hw2 import MODEL_NAME, PER_CV_TIMEOUT_SECONDS, THRESHOLD, load_env_file
 from scripts.inspect_batch import _save_results
 from evaluation.cases import load_cases

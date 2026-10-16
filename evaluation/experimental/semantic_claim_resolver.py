@@ -2,7 +2,7 @@ import json
 from copy import deepcopy
 from typing import Any
 
-from .claim_comparison_validator import ClaimComparisonValidator
+from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 
 
 SEMANTIC_PROMPT = """Resolve only the requested UNKNOWN CV claims against the selected LinkedIn profile.

@@ -25,9 +25,9 @@ _SHADOW_CAPTURE = ContextVar("batch_shadow_capture", default=None)
 def _build_shadow_components():
     from langchain_deepseek import ChatDeepSeek
     from langchain_core.runnables import RunnableLambda
-    from cv_verifier.record_aligner import RecordAligner
-    from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
-    from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
+    from evaluation.experimental.record_aligner import RecordAligner
+    from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
+    from evaluation.experimental.semantic_claim_resolver import SemanticClaimResolver
 
     model = ChatDeepSeek(model=MODEL_NAME, timeout=60, max_retries=0).bind(
         extra_body={"thinking": {"type": "disabled"}}, response_format={"type": "json_object"},

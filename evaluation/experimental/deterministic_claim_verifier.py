@@ -1,6 +1,6 @@
 from typing import Any
 
-from .claim_comparison_validator import ClaimComparisonValidator
+from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 
 
 class DeterministicClaimVerifier:

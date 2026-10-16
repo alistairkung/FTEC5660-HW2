@@ -10,7 +10,7 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from cv_verifier.evidence_aligner import EvidenceAlignmentValidator
+from evaluation.experimental.evidence_aligner import EvidenceAlignmentValidator
 from evaluation.cases import SAVED_INPUTS
 from evaluation.injection_cases import INJECTIONS, load_injections
 from evaluation.run_controlled import build_components, neutral_record_reasons

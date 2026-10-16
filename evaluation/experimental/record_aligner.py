@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from .claim_comparison_validator import ClaimComparisonValidator
+from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 
 
 ALIGNMENT_PROMPT = """Align CV employment and education records to the selected person's LinkedIn records.

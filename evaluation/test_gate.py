@@ -8,9 +8,9 @@ from unittest.mock import patch
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
-from cv_verifier.evidence_aligner import EvidenceAlignmentValidator
-from cv_verifier.record_aligner import RecordAligner
+from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
+from evaluation.experimental.evidence_aligner import EvidenceAlignmentValidator
+from evaluation.experimental.record_aligner import RecordAligner
 from evaluation.correspondence_gate import CorrespondencePlausibilityGate
 from evaluation.gate_cases import load_gate_cases, probe_candidate_rules
 from evaluation.run_controlled import build_components

@@ -12,8 +12,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
 from scripts import inspect_batch
-from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
-from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
+from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
+from evaluation.experimental.semantic_claim_resolver import SemanticClaimResolver
 from test_claim_comparator import CLAIMS, PROFILE
 from test_record_aligner import ALIGNMENTS
 

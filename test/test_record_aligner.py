@@ -5,7 +5,7 @@ from copy import deepcopy
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableLambda
 
-from cv_verifier.record_aligner import RecordAligner, ALIGNMENT_PROMPT
+from evaluation.experimental.record_aligner import RecordAligner, ALIGNMENT_PROMPT
 from test_claim_comparator import CLAIMS, PROFILE
 
 

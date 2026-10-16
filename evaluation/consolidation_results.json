@@ -1,0 +1,927 @@
+{
+  "base_commit": "27267d7de72815e1c6a39c1f5cb2efc86ad2c60e",
+  "production_source_unchanged": true,
+  "original_public_pdfs": {
+    "CV_1.pdf": "98aae3dc2fbc286b7b56262ed0bf4fdf384b2a8f1d1b8496b6a674d39312550d",
+    "CV_2.pdf": "cc8dc8dc5cfd1866d26c54b7591ee706d2f93a69677b58a865e61614db36e1f4",
+    "CV_3.pdf": "b36e9c86127fb451fcd03d6212c6712939fc7f5bd8bbf92c3a33c8e097dc7533",
+    "CV_4.pdf": "88731b9b27c4c4d9b3468ded0d53f6bf1d2220f6b386f30debf367090252f256",
+    "CV_5.pdf": "f89266c3b67b374d2a435b0d6ecb7fc801e9d0245fb91fe8bdd0fd7ccf824cdc",
+    "CV_6.pdf": "0aeb92da767f0f7ce95510fb93cb19464b9d6d108cc1dcb5be8953e67d8b2d21",
+    "CV_7.pdf": "50d0ec090eda4f2037c15cc5234462d1cfb17cf8bdccd8ad69832b6e2cac7aa5"
+  },
+  "extended": {
+    "baseline": {
+      "seconds": 34.993285291828215,
+      "case_sha256": "20d673be7bff7cbe7ce58d1023d67ecdb71fcc391fbdfbee1be9ed4587f2adcf",
+      "metrics": {
+        "false_valid": 0,
+        "false_discrepant": 0,
+        "classification_errors_with_processing_error": 0,
+        "llm_calls": 38,
+        "input_tokens": 94622,
+        "output_tokens": 21030,
+        "total_tokens": 115652,
+        "missing_token_usage_calls": 0,
+        "binary_cases": 23,
+        "correct": 23,
+        "ambiguous_cases": 2,
+        "graded_claims": 446,
+        "correct_claims": 443,
+        "graded_targets": 35,
+        "correct_targets": 33,
+        "unknown_claims": 6,
+        "unknown_cases": 4,
+        "score_half_cases": 4,
+        "fallback_cases": 0,
+        "processing_error_cases": 0,
+        "diagnostic_error_cases": 0,
+        "alignment_errors": 0,
+        "alignment_abstentions": 0,
+        "off_anchor_citations": 1,
+        "uncertainty_correct_cases": 2,
+        "reflection_corrections": 1,
+        "seconds": 97.27312774769962,
+        "semantic_contract_failures": 0,
+        "accuracy": 1.0,
+        "claim_accuracy": 0.9932735426008968,
+        "target_accuracy": 0.9428571428571428,
+        "error_stages": {},
+        "error_kinds": {},
+        "call_stages": {
+          "comparison": 25,
+          "reflection": 13
+        },
+        "grounded_correct_claims": 442,
+        "grounded_claims": 446,
+        "grounded_claim_accuracy": 0.9910313901345291,
+        "verified_discrepancy_cases": 8,
+        "mismatch_cases": 9
+      },
+      "case_results": [
+        {
+          "id": "mba_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "start_year_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_employer",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "jobs.0.title",
+              "expected": "MATCH",
+              "actual": "MISMATCH"
+            }
+          ],
+          "off_anchor_citations": [
+            {
+              "claim_id": "jobs.0.company",
+              "path": "experience.0.company",
+              "expected_index": 1
+            }
+          ]
+        },
+        {
+          "id": "employment_exact_years",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "end_year_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "false_current_employment",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "title_plus_seniority_equivalence",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "explicit_seniority_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "unqualified_title_extra_grade",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "employer_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "reordered_employment",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "ambiguous_record_details",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "graduation_year_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "bsc_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "school_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_school",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_degree",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "education.0.degree",
+              "expected": "MISMATCH",
+              "actual": "UNKNOWN"
+            }
+          ],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "exact_skill",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "skill_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_skill",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "skills.0.name",
+              "expected": "MISMATCH",
+              "actual": "UNKNOWN"
+            }
+          ],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "missing_skills_evidence",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "explicit_current_city",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "ambiguous_city_header",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "hometown_is_not_current_city",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "additional_fabricated_job",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        }
+      ],
+      "modular_replay_equal": true,
+      "aggregate_replay_equal": true
+    },
+    "consolidated": {
+      "seconds": 34.93050183355808,
+      "case_sha256": "20d673be7bff7cbe7ce58d1023d67ecdb71fcc391fbdfbee1be9ed4587f2adcf",
+      "metrics": {
+        "false_valid": 0,
+        "false_discrepant": 0,
+        "classification_errors_with_processing_error": 0,
+        "llm_calls": 39,
+        "input_tokens": 97772,
+        "output_tokens": 21135,
+        "total_tokens": 118907,
+        "missing_token_usage_calls": 0,
+        "binary_cases": 23,
+        "correct": 23,
+        "ambiguous_cases": 2,
+        "graded_claims": 446,
+        "correct_claims": 423,
+        "graded_targets": 35,
+        "correct_targets": 32,
+        "unknown_claims": 8,
+        "unknown_cases": 4,
+        "score_half_cases": 4,
+        "fallback_cases": 1,
+        "processing_error_cases": 1,
+        "diagnostic_error_cases": 0,
+        "alignment_errors": 0,
+        "alignment_abstentions": 0,
+        "off_anchor_citations": 2,
+        "uncertainty_correct_cases": 2,
+        "reflection_corrections": 2,
+        "seconds": 96.96399100497365,
+        "semantic_contract_failures": 0,
+        "accuracy": 1.0,
+        "claim_accuracy": 0.9484304932735426,
+        "target_accuracy": 0.9142857142857143,
+        "error_stages": {
+          "comparison": 1
+        },
+        "error_kinds": {
+          "contract": 1
+        },
+        "call_stages": {
+          "comparison": 25,
+          "reflection": 14
+        },
+        "grounded_correct_claims": 422,
+        "grounded_claims": 446,
+        "grounded_claim_accuracy": 0.9461883408071748,
+        "verified_discrepancy_cases": 8,
+        "mismatch_cases": 9
+      },
+      "case_results": [
+        {
+          "id": "mba_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "start_year_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_employer",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "jobs.0.title",
+              "expected": "MATCH",
+              "actual": "UNKNOWN"
+            },
+            {
+              "claim_id": "jobs.0.start_year",
+              "expected": "MATCH",
+              "actual": "UNKNOWN"
+            },
+            {
+              "claim_id": "jobs.0.is_current",
+              "expected": "MATCH",
+              "actual": "UNKNOWN"
+            }
+          ],
+          "off_anchor_citations": [
+            {
+              "claim_id": "jobs.0.company",
+              "path": "experience.0.company",
+              "expected_index": 1
+            }
+          ]
+        },
+        {
+          "id": "employment_exact_years",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "end_year_contradiction",
+          "score": 0.5,
+          "errors": [
+            {
+              "stage": "comparison",
+              "message": "Missing profile values are not supporting or contradictory evidence",
+              "kind": "contract"
+            }
+          ],
+          "claim_failures": [
+            {
+              "claim_id": "name",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "city",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.0.company",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.0.title",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.0.start_year",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.0.is_current",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.1.company",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.1.title",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.1.start_year",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.1.end_year",
+              "expected": "MISMATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "jobs.1.is_current",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "education.0.school",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "education.0.degree",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "education.0.field",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "education.0.graduation_year",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "skills.0.name",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "skills.1.name",
+              "expected": "MATCH",
+              "actual": null
+            },
+            {
+              "claim_id": "skills.2.name",
+              "expected": "MATCH",
+              "actual": null
+            }
+          ],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "false_current_employment",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "title_plus_seniority_equivalence",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "explicit_seniority_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "unqualified_title_extra_grade",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "employer_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "reordered_employment",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "ambiguous_record_details",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "graduation_year_contradiction",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "bsc_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "school_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_school",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_degree",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "exact_skill",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "skill_alias",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "fabricated_skill",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "skills.0.name",
+              "expected": "MISMATCH",
+              "actual": "UNKNOWN"
+            }
+          ],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "missing_skills_evidence",
+          "score": 0.5,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "explicit_current_city",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "ambiguous_city_header",
+          "score": 0.9,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "hometown_is_not_current_city",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [],
+          "off_anchor_citations": []
+        },
+        {
+          "id": "additional_fabricated_job",
+          "score": 0.1,
+          "errors": [],
+          "claim_failures": [
+            {
+              "claim_id": "jobs.2.is_current",
+              "expected": "MISMATCH",
+              "actual": "MATCH"
+            }
+          ],
+          "off_anchor_citations": [
+            {
+              "claim_id": "jobs.2.is_current",
+              "path": "experience.1.is_current",
+              "expected_index": null
+            }
+          ]
+        }
+      ],
+      "modular_replay_equal": true,
+      "aggregate_replay_equal": true
+    }
+  },
+  "public": [
+    {
+      "run": 1,
+      "seconds": 33.87006895802915,
+      "correct": 6,
+      "csv_rows": 7,
+      "checkpoint_count": 7,
+      "records": [
+        {
+          "cv": "CV_1.pdf",
+          "profile_id": 6337,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 13.030082083307207,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_2.pdf",
+          "profile_id": 47,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 13.977690041065216,
+          "correctness": "correct",
+          "errors": [
+            {
+              "stage": "reflection",
+              "message": "Reflection must contradict the claimed title or explicit seniority"
+            }
+          ],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_3.pdf",
+          "profile_id": 6541,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 13.252378375269473,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_4.pdf",
+          "profile_id": 8235,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 17,
+            "MISMATCH": 1
+          },
+          "seconds": 15.732393332757056,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_5.pdf",
+          "profile_id": null,
+          "score": 0.5,
+          "prediction": 0,
+          "negative_basis": "failure_or_unresolved",
+          "finding_counts": {},
+          "seconds": 1.9231792502105236,
+          "correctness": "correct",
+          "errors": [
+            {
+              "stage": "extraction",
+              "message": "A single current candidate requires a matching location value"
+            }
+          ],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_6.pdf",
+          "profile_id": 8715,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 7,
+            "MISMATCH": 11
+          },
+          "seconds": 17.007354458793998,
+          "correctness": "incorrect: expected 1, predicted 0",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_7.pdf",
+          "profile_id": 9590,
+          "score": 0.5,
+          "prediction": 0,
+          "negative_basis": "failure_or_unresolved",
+          "finding_counts": {},
+          "seconds": 16.99402075074613,
+          "correctness": "correct",
+          "errors": [
+            {
+              "stage": "comparison",
+              "message": "Missing profile values are not supporting or contradictory evidence"
+            }
+          ],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        }
+      ]
+    },
+    {
+      "run": 2,
+      "seconds": 48.68948191776872,
+      "correct": 7,
+      "csv_rows": 7,
+      "checkpoint_count": 7,
+      "records": [
+        {
+          "cv": "CV_1.pdf",
+          "profile_id": 6337,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 18.613453375175595,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_2.pdf",
+          "profile_id": 47,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 18.63531741593033,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_3.pdf",
+          "profile_id": 6541,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 17.669990500435233,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_4.pdf",
+          "profile_id": 8235,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 17,
+            "MISMATCH": 1
+          },
+          "seconds": 14.589445082470775,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_5.pdf",
+          "profile_id": 1297,
+          "score": 0.1,
+          "prediction": 0,
+          "negative_basis": "MISMATCH",
+          "finding_counts": {
+            "MATCH": 17,
+            "MISMATCH": 1
+          },
+          "seconds": 16.232272291556,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": [
+              {
+                "claim_id": "jobs.1.title",
+                "cv_claim": {
+                  "value": "Senior Analyst",
+                  "raw": "Senior Analyst, Microsoft    2007 \u2013 2008"
+                },
+                "status": "MISMATCH",
+                "evidence": [
+                  {
+                    "path": "experience.1.seniority",
+                    "value": "junior"
+                  }
+                ],
+                "reason": "The CV claims an explicitly senior title (Senior Analyst), but the aligned profile record has seniority 'junior', which contradicts the claimed senior qualifier."
+              }
+            ]
+          }
+        },
+        {
+          "cv": "CV_6.pdf",
+          "profile_id": 6561,
+          "score": 0.9,
+          "prediction": 1,
+          "negative_basis": null,
+          "finding_counts": {
+            "MATCH": 18
+          },
+          "seconds": 15.893081250600517,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": true,
+            "corrections": []
+          }
+        },
+        {
+          "cv": "CV_7.pdf",
+          "profile_id": null,
+          "score": 0.5,
+          "prediction": 0,
+          "negative_basis": "failure_or_unresolved",
+          "finding_counts": {},
+          "seconds": 14.958996250294149,
+          "correctness": "correct",
+          "errors": [],
+          "reflection": {
+            "attempted": false,
+            "corrections": []
+          }
+        }
+      ]
+    }
+  ],
+  "deterministic_tests": {
+    "implementation": 246,
+    "historical_evaluation": 62,
+    "total": 308
+  },
+  "configured_github_workflows": 0
+}

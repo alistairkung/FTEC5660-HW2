@@ -14,8 +14,8 @@ from langchain_core.runnables import RunnableLambda
 
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
 from cv_verifier.cv_scorer import CVScorer
-from cv_verifier.evidence_aligner import EvidenceAlignmentValidator
-from cv_verifier.semantic_claim_resolver import SemanticClaimResolver
+from evaluation.experimental.evidence_aligner import EvidenceAlignmentValidator
+from evaluation.experimental.semantic_claim_resolver import SemanticClaimResolver
 from evaluation.injection_cases import load_injections
 from evaluation.run_controlled import build_components, neutral_record_reasons, grade, _CALLS, _error_kind
 from hw2 import MODEL_NAME, PER_CV_TIMEOUT_SECONDS, load_env_file

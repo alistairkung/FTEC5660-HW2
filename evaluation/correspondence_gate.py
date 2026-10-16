@@ -3,8 +3,8 @@
 from copy import deepcopy
 
 from cv_verifier.claim_validator import ClaimValidator
-from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
-from cv_verifier.record_aligner import RecordAligner
+from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
+from evaluation.experimental.record_aligner import RecordAligner
 
 
 class CorrespondencePlausibilityGate:

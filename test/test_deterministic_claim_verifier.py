@@ -2,7 +2,7 @@ import unittest
 from copy import deepcopy
 
 from cv_verifier.claim_comparison_validator import ClaimComparisonValidator
-from cv_verifier.deterministic_claim_verifier import DeterministicClaimVerifier
+from evaluation.experimental.deterministic_claim_verifier import DeterministicClaimVerifier
 from test_claim_comparator import CLAIMS, PROFILE
 from test_record_aligner import ALIGNMENTS
 

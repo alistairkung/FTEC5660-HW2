@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 
-from cv_verifier.evidence_aligner import EvidenceAlignmentValidator
+from evaluation.experimental.evidence_aligner import EvidenceAlignmentValidator
 from evaluation.cases import load_cases
 from evaluation.evidence_alignment import correspondence_expectations
 
