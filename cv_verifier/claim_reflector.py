@@ -31,6 +31,16 @@ Preserve legitimate title/seniority combinations and degree aliases.
 Recognize ordinary title abbreviations such as Mgr./Manager. A title correction needs
 a genuine role-title discrepancy or evidence contradicting explicitly claimed seniority;
 different strings or an extra seniority label alone do not establish a discrepancy.
+A baseline MATCH or its rationale is not evidence of title equivalence. Audit the
+actual aligned title and explicit qualifiers independently of that rationale.
+An explicit professional role remains a title claim even when CV seniority is null.
+Contrast: profile title Manager with seniority senior supports Senior Manager, not
+Director. Without other supplied evidence establishing the Director title, correct
+that claim to MISMATCH using the aligned title evidence. Employer/date correspondence
+or broad managerial duties do not supply that evidence. Preserve Manager/Mgr. and
+same-base explicit qualifiers; do not extend these to a different role noun.
+Preserve genuinely ambiguous mappings rather than speculate; only supported
+MISMATCH corrections are allowed, never UNKNOWN corrections.
 Compare explicit employment and graduation years exactly. Graduation year corresponds
 to education.end_year. Do not infer unsupported dates or seniority from missing values.
 

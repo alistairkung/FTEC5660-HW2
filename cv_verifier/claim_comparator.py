@@ -33,6 +33,22 @@ individual field. A field discrepancy must not prevent aligning its correspondin
 record when the remaining context identifies it. If alignment remains ambiguous,
 use UNKNOWN rather than choosing convenient evidence from unrelated records.
 
+Record correspondence is not title equivalence. Matching employer, dates and other
+attributes identifies the record; verify each specific field independently.
+One false date or employer does not make an otherwise supported title false.
+For titles, first normalize legitimate abbreviations (Mgr./Manager) and explicit
+qualifiers: Senior Manager and Manager with seniority senior are MATCH, including
+when another field mismatches. An unqualified Manager matches Manager with extra
+seniority information. Preserve other established professional title equivalents.
+Director and Manager are not automatically interchangeable. A grade such as senior
+can supply a Senior qualifier to the same base role, but cannot change Manager into
+Director. A claimed promotion or different role needs evidence supporting that
+particular claim. Reject a clear unsupported role-title substitution with MISMATCH,
+citing the corresponding title; matching employer/dates or broad managerial duties
+does not establish equivalence. For genuinely ambiguous organization-specific title mappings,
+use UNKNOWN when supplied evidence cannot resolve equivalence; do not assume a
+universal hierarchy or reject on different strings alone.
+
 Allow legitimate semantic equivalents: Senior Manager matches Manager with seniority
 senior; Senior Scientist matches Scientist with seniority senior; MBA matches Master
 of Business Administration; BSc matches Bachelor of Science. Employer aliases and
