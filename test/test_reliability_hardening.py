@@ -237,3 +237,17 @@ class ExplicitGradeAdjudicationTests(unittest.IsolatedAsyncioTestCase):
         result = await verifier.ainvoke('source')
         self.assertEqual(result['score'], .5)
         self.assertFalse(calls)
+
+
+class IsolatedEmployerIdentityTests(unittest.IsolatedAsyncioTestCase):
+    async def test_single_employer_without_role_dates_or_education_does_not_establish_identity(self):
+        wrong = dict(deepcopy(PROFILE), id=12)
+        for record in wrong['experience']:
+            record.update(company='Unrelated Enterprise', title='Architect', start_year=1990, end_year=1995)
+        wrong['experience'][0]['company'] = CLAIMS['jobs'][0]['company']
+        wrong['education'] = [{'school': 'Different Institute', 'degree': 'PhD', 'field': 'Logistics', 'end_year': 1990}]
+        pipeline, _, resolver = investigation.InvestigationTests().pipeline([])
+        resolver.resolve.return_value = {'candidate_id': 12, 'reason': 'Only shared employer despite widespread disagreement'}
+        decision, errors = await pipeline._resolve_identity(CLAIMS, [wrong])
+        self.assertIsNone(decision['candidate_id'])
+        self.assertTrue(errors)
